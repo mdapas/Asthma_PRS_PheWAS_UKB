@@ -19,10 +19,15 @@ PRScs.py \
     --chrom=$chr
 ```
 
+
 Posterior SNP effect sizes were combined into aggregate scores for individuals in the UKB using the Plink v2.0 “score” function. Effects for missing genotypes were imputed as the posterior SNP effect size multiplied by the effect allele frequency:
 
 ```bash
-plink2 --bgen $input_prefix.bgen --sample $input_prefix.sample --score $score_file 2 4 6 ignore-dup-ids cols=+scoresums --out $out_prefix
+plink2 \
+    --bgen $input_prefix.bgen \
+    --sample $input_prefix.sample \
+    --score $score_file 2 4 6 ignore-dup-ids cols=+scoresums \
+    --out $out_prefix
 ```
 
 # PRS_asthmaPrediction.R
