@@ -44,7 +44,10 @@ model=PRS.PRScs.UKB_LD.TAGC_ME
 
 echo "chr ukb_n prs_n scored_n" > $dir/snp_counts.txt
 for i in {1..22}; do
-    echo $i $(grep detected $dir/UKB.PRScs_score.chr$i.log | cut -d ' ' -f 2) $(wc -l $dir/$model/PRScs_pst_eff_a1_b0.5_phiauto_chr$i.txt | cut -d ' ' -f 1) $(grep processed $dir/UKB.PRScs_score.chr$i.log | cut -d ' ' -f 2); done >> $dir/snp_counts.txt
+    echo $i \
+    $(grep detected $dir/UKB.PRScs_score.chr$i.log | cut -d ' ' -f 2) \
+    $(wc -l $dir/$model/PRScs_pst_eff_a1_b0.5_phiauto_chr$i.txt | cut -d ' ' -f 1) \
+    $(grep processed $dir/UKB.PRScs_score.chr$i.log | cut -d ' ' -f 2); done >> $dir/snp_counts.txt
 
 for i in {1..22}; do 
 	head -n 1 $dir/UKB.PRScs_score.chr$i.sscore | awk '{print $0, "SCORE_SUM"}' > $dir/UKB.PRScs_score.chr$i.sscoreSum.txt
