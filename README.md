@@ -80,7 +80,7 @@ tail -n +2 $dir/tmp.txt | awk '{print $1,$2+$3+$4+$5+$6+$7+$8+$9+$10+$11+$12+$13
 
 # MAKE OUTPUT FILE
 paste -d ' ' $dir/tmp.counts.txt $dir/tmp.dosage_sum.txt $dir/tmp.score.txt | cut -d ' ' -f 1,2,4,6 > $dir/UKB.PRScs_score.ALL.sscoreSum.txt
-#rm $dir/tmp.*
+rm $dir/tmp.*
 
 ```
 
