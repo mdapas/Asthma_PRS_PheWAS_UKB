@@ -85,7 +85,7 @@ rm $dir/tmp.*
 ```
 
 # PRS_phewas.R
-This script contains all the analyses included in the manuscript after the PRS scores were generated, including the PRS assessments and phenome-wide association (PheWAS) testing. The script is organized linearly to match the manuscript Results. Each section contains corresponding information, references, and notes.
+This R script contains all the analyses included in the manuscript after the PRS scores were generated, including the PRS assessments and phenome-wide association (PheWAS) testing. The script is designed to be run in RStudio and is organized linearly to match the manuscript Results. Each section contains corresponding information, references, and notes.
 1.  PRS Model Comparison 
 2.  PRS Asthma Prediction (Figures 1 & 2)
 3.  PheWASs by Ancestry Group (Figure 3)
