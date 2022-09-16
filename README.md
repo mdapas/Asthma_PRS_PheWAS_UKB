@@ -1,3 +1,4 @@
+li {list-style-type: none;}
 This repository contains the scripts used in Dapas M, Lee YL, Wentworth-Sheilds W, Im HK, Ober C, Schoettler N. (2022) Revealing polygenic pleiotropy using genetic risk scores for asthma.
 
 
@@ -93,6 +94,6 @@ This script contains all the analyses included in the manuscript after the PRS s
 4.  Analysis in non-asthmatics
 5.  HLA Effects
 6.  Trait Mediation Analysis
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Executes mediation analyses for eosinophil percentage, FEV1/FVC ratio, age of hay fever diagnosis, and BMI, and also produces Figure 8 from  the manuscript. The equations used to estimate the mediation proportions were adopted from MacKinnon 2007 (doi: 10.1177/1740774507083434) and Li 2007 (doi: 10.1002/sim.2730). Mediation p-values were estimated using the ROBMED package (Alfons 2021, doi: 10.1177/1094428121999096)
+* Executes mediation analyses for eosinophil percentage, FEV1/FVC ratio, age of hay fever diagnosis, and BMI, and also produces Figure 8 from  the manuscript. The equations used to estimate the mediation proportions were adopted from MacKinnon 2007 (doi: 10.1177/1740774507083434) and Li 2007 (doi: 10.1002/sim.2730). Mediation p-values were estimated using the ROBMED package (Alfons 2021, doi: 10.1177/1094428121999096)
 
 
