@@ -84,15 +84,11 @@ rm $dir/tmp.*
 
 ```
 
-
 # PRS_phewas.R
-This script contains all the analyses included in the manuscript after the PRS scores were generated. The script is organized linearly and organized according by analysis and figures.
+This script contains all the analyses included in the manuscript after the PRS scores were generated, including the PRS assessments and phenome-wide association (PheWAS) testing. The script is organized linearly to match the manuscript Results. Each section contains corresponding information, references, and notes.
 1.  PRS Model Comparison 
-2.  PRS Asthma Prediction 
-3.  PheWASs by ancestry group
-4.  Analysis in non-asthmatics
-5.  HLA Effects
-6.  Trait Mediation Analysis
-* * Executes mediation analyses for eosinophil percentage, FEV1/FVC ratio, age of hay fever diagnosis, and BMI, and also produces Figure 8 from  the manuscript. The equations used to estimate the mediation proportions were adopted from MacKinnon 2007 (doi: 10.1177/1740774507083434) and Li 2007 (doi: 10.1002/sim.2730). Mediation p-values were estimated using the ROBMED package (Alfons 2021, doi: 10.1177/1094428121999096)
-
-
+2.  PRS Asthma Prediction (Figures 1 & 2)
+3.  PheWASs by Ancestry Group (Figure 3)
+4.  Analysis in Non-asthmatics (Figures 4,5, & 6)
+5.  HLA Effects (Figure 7)
+6.  Trait Mediation Analysis (Figure 8)
