@@ -84,16 +84,15 @@ rm $dir/tmp.*
 
 ```
 
-# PRS_asthmaPrediction.R
-This script ...
 
 # PRS_phewas.R
-This script ...
-
-# PRS_plots.R
-This script ...
-
-# PRS_mediation.R
-This script executes mediation analyses for eosinophil percentage, FEV1/FVC ratio, age of hay fever diagnosis, and BMI, and it also produces Figure 8 from the manuscript. The equations used to estimate the mediation proportions were adopted from MacKinnon 2007 (doi: 10.1177/1740774507083434) and Li 2007 (doi: 10.1002/sim.2730). Mediation p-values were estimated using the ROBMED package (Alfons 2021, doi: 10.1177/1094428121999096)
+This script contains all the analyses included in the manuscript after the PRS scores were generated. The script is organized linearly and organized according by analysis and figures.
+1.  PRS Model Comparison 
+2.  PRS Asthma Prediction 
+3.  PheWASs by ancestry group
+4.  Analysis in non-asthmatics
+5.  HLA Effects
+6.  Trait Mediation Analysis
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Executes mediation analyses for eosinophil percentage, FEV1/FVC ratio, age of hay fever diagnosis, and BMI, and also produces Figure 8 from  the manuscript. The equations used to estimate the mediation proportions were adopted from MacKinnon 2007 (doi: 10.1177/1740774507083434) and Li 2007 (doi: 10.1002/sim.2730). Mediation p-values were estimated using the ROBMED package (Alfons 2021, doi: 10.1177/1094428121999096)
 
 
