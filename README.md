@@ -19,8 +19,7 @@ PRScs.py \
     --chrom=$chr
 ```
 
-
-Posterior SNP effect sizes were combined into aggregate scores for each chromosome using the Plink v2.0 “score” function. Effects for missing genotypes were imputed as the posterior SNP effect size multiplied by the effect allele frequency:
+The posterior SNP effect sizes generated from the TAGC ME sample using the UKB LD panel are provided in **TAGC.PRScs_pst_eff.txt.gz** file. The effect sizes were combined into aggregate scores for each chromosome using the Plink v2.0 “score” function. Effects for missing genotypes were imputed as the posterior SNP effect size multiplied by the effect allele frequency:
 
 ```bash
 i=$1  # chromosome passed to script
