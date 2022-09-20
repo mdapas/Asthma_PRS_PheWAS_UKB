@@ -11,8 +11,7 @@ library(tidyverse)
 library(ggrepel)
 library(ggtext)
 library(grid)
-#library(gridExtra)
-#library(extrafont)
+library(stringr)
 library(forestplot)
 library(robmed)
 
@@ -404,7 +403,7 @@ dev.off()
 # library(ggrepel)
 # library(ggtext)
 # library(grid)
-# library(extrafont)
+# library(stringr)
 
 # trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.prs.data.csv'), header=T)
 
@@ -461,6 +460,24 @@ for (anc in c(bw, nbw, afr)) {
     i <- i+1
   }
 }
+
+sig_traits <- pwas_results[(pwas_results$ancestry==bw) & (pwas_results$p<0.05/(nrow(pwas_results)/3)),'ukb_variable']
+rep_traits <- na.exclude(pwas_results[(pwas_results$ancestry==afr) & (pwas_results$p<0.05/(nrow(pwas_results)/3)) & (pwas_results$ukb_variable %in% sig_traits),'ukb_variable'])
+
+### Test for African ancestry-specific effects
+pwas_dat$afr <- ifelse(pwas_dat$ancestry==afr,1,0)
+for (trait in rep_traits){
+  if (trait %in% bin_traits) {
+    model <- glm(paste0(trait,'~',afr_covars,'+afr*',prs), data=pwas_dat, family='binomial')
+  }
+  else {
+    model <- lm(paste0(trait,'~',afr_covars,'+afr*',prs), data=pwas_dat)
+  }
+  if (summary(model)$coefficients[25,4]<0.05) {
+    print(c(trait, summary(model)$coefficients[25,]))
+  } 
+}
+
 
 # Write PheWAS output tabeles
 
@@ -570,15 +587,15 @@ group_cols <- c('Neurologic & Behavioral'='goldenrod', 'Ocular'='cornflowerblue'
                 'Cardiovascular'='palevioletred', 'Hematologic &\nBlood Chemistry'='cadetblue',
                 'Gastrointenstinal'='orange', 'Renal & Urologic'='seagreen',
                 'Reproductive,\nEndocrine & Metabolic'='royalblue', 'Anthropometric'='coral',
-                'Musculoskeletal & Skin'='gold', 'Neoplasms'='orchid4',
-                'Other'='plum4')
+                'Musculoskeletal & Skin'='plum4', 'Neoplasms'='orchid4',
+                'Other'='gold')
 
 y_labels <- sub('\n','<br>',
                 str_c("<br>**",y_axis$category,"**<br><span style='font-size:9.5pt;color:dimgray'>",
                       paste0("^((n=",totals$n,")^)</span>")))
 
 
-cairo_pdf(filename=paste0(output_dir, '/Fig_3.pdf'), width=11, height=7.5)  # requires xquartz/encodings
+cairo_pdf(filename=paste0(output_dir, '/Fig_3x.pdf'), width=11, height=7.5)  # requires xquartz/encodings
 ggplot(fig_data, aes(x=-log10(p),y=Pos)) + 
   
   # add non-significant traits
@@ -728,12 +745,15 @@ for (trait in c(bin_traits, quant_traits)) {
 pwas_na_results <- merge(pwas_na_results, pwas_results[pwas_results$ancestry==bw,
                                                        c('ukb_variable','beta','se','p')], by='ukb_variable')
 
-pwas_na_results$delta_beta <- (pwas_na_results$beta.x/pwas_na_results$beta.y)-1
+names(pwas_na_results) <- gsub(x = names(pwas_na_results), pattern = "\\.x", replacement = "\\.na")  
+names(pwas_na_results) <- gsub(x = names(pwas_na_results), pattern = "\\.y", replacement = "\\.a")  
 
-# table_s3 <- pwas_na_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.x',
+pwas_na_results$delta_beta <- (pwas_na_results$beta.na/pwas_na_results$beta.a)-1
+
+#table_s3 <- pwas_na_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.x',
 #                                'se.x','p.x','n','delta_beta')]
 
-# write.table(table_s3, paste0(output_dir, '/table_s3.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
+#write.table(table_s3, paste0(output_dir, '/table_s3.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
 # write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
 #             quote=F, row.names=F,col.names=T, sep="\t")
 
@@ -748,9 +768,7 @@ pwas_na_results$delta_beta <- (pwas_na_results$beta.x/pwas_na_results$beta.y)-1
 # library(forestplot)
 
 ## BW PheWAS Results
-fig_data <- pwas_na_results[!is.na(pwas_na_results$p.x),]
-names(fig_data) <- gsub(x = names(fig_data), pattern = "\\.x", replacement = "\\.na")  
-names(fig_data) <- gsub(x = names(fig_data), pattern = "\\.y", replacement = "\\.a")  
+fig_data <- pwas_na_results[!is.na(pwas_na_results$p.na),]
 
 fig_data[fig_data$invert==1,'beta.a'] <- fig_data[fig_data$invert==1,'beta.a']*-1
 fig_data[fig_data$bin==1,'CI_L.a'] <- exp(fig_data[fig_data$bin==1,'beta.a'] - 1.96*fig_data[fig_data$bin==1,'se.a'])
@@ -768,6 +786,7 @@ fig_data[fig_data$ukb_variable=='blood_clot_none','p.a'] <- 5e-324
 fig_data[fig_data$ukb_variable=='eosinophill_count0','p.a'] <- 5e-324
 
 ## BW PheWAS non-Asthmatics - Results
+fig_data[fig_data$invert==1,'beta.na'] <- fig_data[fig_data$invert==1,'beta.na']*-1
 fig_data[fig_data$bin==1,'CI_L.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'] - 1.96*fig_data[fig_data$bin==1,'se.na'])
 fig_data[fig_data$bin==1,'CI_U.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'] + 1.96*fig_data[fig_data$bin==1,'se.na'])
 fig_data[fig_data$bin==1,'beta.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'])
@@ -795,7 +814,7 @@ tabletext <- list(
   c("P-value\n(Non-asthma)\n", p.na)
 )
 
-rows <- as.character(1:36)
+rows <- as.character(1:37)
 line_list <- list("1"=gpar(col=rgb(1,1,1,0),lty='dotted'), "2"=gpar(col='gray20'))
 for (i in c(3:length(rows))) {
   line_list[[rows[i]]] <- gpar(col='gray25',lty=3)
@@ -886,8 +905,8 @@ trait <- 'eosinophill_percentage0'
 
 fig_data <- c(beta.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'beta'],
               se.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'se'],
-              beta.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.x'],
-              se.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'se.x'],
+              beta.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.na'],
+              se.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'se.na'],
               beta.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'beta'],
               se.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'se'],
               beta.afr=pwas_results[pwas_results$ancestry==afr & pwas_results$ukb_variable==trait,'beta'],
@@ -899,14 +918,14 @@ fig_data <- c(fig_data,
               CI_L.na=fig_data[['beta.na']]-(1.96*fig_data[['se.na']]),
               CI_U.na=fig_data[['beta.na']]+(1.96*fig_data[['se.na']]),
               CI_L.nbw=fig_data[['beta.nbw']]-(1.96*fig_data[['se.nbw']]),
-              CI_U.nbw=fig_data[['beta.nbw']]-(1.96*fig_data[['se.nbw']]),
+              CI_U.nbw=fig_data[['beta.nbw']]+(1.96*fig_data[['se.nbw']]),
               CI_L.afr=fig_data[['beta.afr']]-(1.96*fig_data[['se.afr']]),
               CI_U.afr=fig_data[['beta.afr']]+(1.96*fig_data[['se.afr']]))
 
 fig_data <- round(fig_data, 3)
 
 fig_p <- c(p.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'p'],
-           p.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.x'],
+           p.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.na'],
            p.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'p'],
            p.afr=pwas_results[pwas_results$ancestry==afr & pwas_results$ukb_variable==trait,'p'])
 
@@ -927,16 +946,25 @@ tabletext <- list(
   c("P", fig_p)
 )
 
+for(i in 2:length(tabletext)) {
+  # All elements should have the same length
+  if (5 != length(tabletext[[i]]))
+    print(tabletext[[i]])
+}
+
+
 rows <- as.character(1:5)
 line_list <- list("1"=gpar(col=rgb(1,1,1,0),lty='dotted'), "2"=gpar(col='gray20'))
 for (i in c(3:length(rows))) {
   line_list[[rows[i]]] <- gpar(col='gray25',lty=3)
 }
 
+
 # Plot
+cairo_pdf(filename=paste0(output_dir, '/Fig_6.pdf'), width=7, height=4)  # requires xquartz/encodings
 forestplot(tabletext, 
            mean = c(NA, fig_data['beta.bw'], fig_data['beta.na'], fig_data['beta.nbw'], fig_data['beta.afr']),
-           lower = c(NA,fig_data['CI_L.bw'], fig_data['CI_L.na'], fig_data['CI_L.nbw'], fig_data['CI_L.afr']), 
+           lower = c(NA, fig_data['CI_L.bw'], fig_data['CI_L.na'], fig_data['CI_L.nbw'], fig_data['CI_L.afr']), 
            upper = c(NA, fig_data['CI_U.bw'], fig_data['CI_U.na'], fig_data['CI_U.nbw'], fig_data['CI_U.afr']),
            new_page = TRUE,
            clip = c(-0.2,.2), 
@@ -944,7 +972,6 @@ forestplot(tabletext,
            xlog = F, xlab=expression(beta["z"]), 
            col = fpColors(box="black", lines="slategray4"),
            fn.ci_norm = fpDrawDiamondCI,
-           #fn.ci_norm = c(fpDrawNormalCI, fpDrawCircleCI,fpDrawDiamondCI, fpDrawDiamondCI),
            is.summary = c(TRUE,rep(FALSE,4)), 
            graph.pos = 2,
            graphwidth=unit(60,'mm'),
@@ -956,6 +983,7 @@ forestplot(tabletext,
            txt_gp= fpTxtGp(label=gpar(cex=0.75), title=gpar(cex=0.85), legend=gpar(cex=0.85), 
                            xlab=gpar(cex=0.95), ticks=gpar(cex=0.7), summary=gpar(cex=0.85)),
            ci.vertices = TRUE)
+dev.off()
 
 
 ###############################################################################################
@@ -1052,12 +1080,16 @@ for (trait in c(bin_traits, quant_traits)) {
 pwas_hla_results <- merge(pwas_hla_results, pwas_results[pwas_results$ancestry==bw,
                                                        c('ukb_variable','beta','se','p')], by='ukb_variable')
 
-pwas_hla_results$delta_beta <- (pwas_hla_results$beta.x/pwas_hla_results$beta.y)-1
+names(pwas_hla_results) <- gsub(x = names(pwas_hla_results), pattern = "\\.x", replacement = "\\.hla")  
+names(pwas_hla_results) <- gsub(x = names(pwas_hla_results), pattern = "\\.y", replacement = "\\.a")  
 
-# table_s6 <- pwas_hla_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.x',
-#                                'se.x','p.x','n','delta_beta')]
+pwas_hla_results$delta_beta <- (pwas_hla_results$beta.hla/pwas_hla_results$beta.a)-1
 
-# write.table(table_s6, paste0(output_dir, '/table_s6.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
+
+#table_s6 <- pwas_hla_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.hla',
+#                                'se.hla','p.hla','n','delta_beta')]
+
+#write.table(table_s6, paste0(output_dir, '/table_s6.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
 # write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
 #             quote=F, row.names=F,col.names=T, sep="\t")
 
