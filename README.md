@@ -1,11 +1,11 @@
-This repository contains the scripts used in Dapas M, Lee YL, Wentworth-Sheilds W, Im HK, Ober C, Schoettler N. (2022) Revealing polygenic pleiotropy using genetic risk scores for asthma.
+This repository contains the scripts used in Dapas M, Lee YL, Wentworth-Sheilds W, Im HK, Ober C, Schoettler N. (2023) Revealing polygenic pleiotropy using genetic risk scores for asthma.
 
 
 # Summary GWAS data
-We used summary statistics from the Trans-National Asthma Genetic Consortium (TAGC) meta-analysis of asthma (23,948 cases, 118,538 controls) as our basis for our polygenic risk model (doi: 10.1038/s41588-017-0014-7). The summary statistics of the meta-analysis are available through the GWAS Catalog entry for the TAGC study on the European Bioinformatics Institute web site (https://www.ebi.ac.uk/gwas/downloads/summary-statistics). Summary statistics from TAGC were published for the entire multi-ancestry (ME) sample (23,948 cases, 118,538 controls) and for the European-ancestry (EUR) subset (19,954 cases, 107,715 controls). 
+The polygenic risk models used in this study were derived from summary statistics from the Trans-National Asthma Genetic Consortium (TAGC) meta-analysis of asthma (23,948 cases, 118,538 controls; doi: 10.1038/s41588-017-0014-7) and from the Global Biobank Meta-analysis Initative (GBMI) meta-analysis of asthma (197,342 cases, 1,903,937 controls; doi: 10.1016/j.xgen.2022.100241). The summary statistics of the TAGC meta-analysis are available through the GWAS Catalog entry for the TAGC study on the European Bioinformatics Institute [website](https://www.ebi.ac.uk/gwas/downloads/summary-statistics). Summary statistics from TAGC were published for the entire multi-ancestry (ME) sample (23,948 cases, 118,538 controls) and for the European-ancestry (EUR) subset (19,954 cases, 107,715 controls). 
 
 # Polygenic risk score (PRS) modeling
-PRS models were generated using PRS-CS (https://github.com/getian107/PRScs). We tested two different provided linkage disequilibrium (LD) reference panels, one generated from 1000 Genomes data and the other from the UK Biobank (UKB), both in samples of European ancestry. We generated four total PRS models, utilizing either the 1KG or UKB LD reference panels with each of the EUR and ME summary statistics reported from TAGC. Here is an example run of PRS-CS for the ME cohort using the UKB LD reference panel:
+For TAGC, we derived polygenic risk models from the GWAS summary statistics. For GBMI, we adopted the model published by Wang and colleagues from the GBMI leave-UKB-out multi-ancestry GWAS deposited on the PGS Catalog ([PGS001787](https://www.pgscatalog.org/score/PGS001787/)). PRS models were generated using [PRS-CS](https://github.com/getian107/PRScs). We generated separate PRS models for each of the EUR and ME summary statistics reported from TAGC. Here is an example run of PRS-CS for the ME cohort using the UKB LD reference panel:
 
 ```bash
 PRScs.py \
@@ -19,7 +19,9 @@ PRScs.py \
     --chrom=$chr
 ```
 
-The posterior SNP effect sizes generated from the TAGC ME sample using the UKB LD panel are provided in [TAGC.PRScs_pst_eff.txt.gz](https://github.com/mdapas/Asthma_PRS_PheWAS_UKB/blob/main/TAGC.PRScs_pst_eff.txt.gz) file. The effect sizes were combined into aggregate scores for each chromosome using the Plink v2.0 “score” function. Effects for missing genotypes were imputed as the posterior SNP effect size multiplied by the effect allele frequency:
+The posterior SNP effect sizes generated from the TAGC ME sample using the UKB LD panel are provided in [TAGC.PRScs_pst_eff.txt.gz](https://github.com/mdapas/Asthma_PRS_PheWAS_UKB/blob/main/TAGC.PRScs_pst_eff.txt.gz) file. 
+
+Then the effect sizes were combined into aggregate scores for each chromosome using the Plink v2.0 “score” function. Effects for missing genotypes were imputed as the posterior SNP effect size multiplied by the effect allele frequency:
 
 ```bash
 i=$1  # chromosome passed to script
@@ -85,9 +87,13 @@ rm $dir/tmp.*
 
 # PRS_phewas.R
 This R script contains all the analyses included in the manuscript after the PRS scores were generated, including the PRS assessments and phenome-wide association (PheWAS) testing. The script is designed to be run in RStudio and is organized linearly to match the manuscript Results. Each section contains corresponding information, references, and notes.
-1.  PRS Model Comparison 
-2.  PRS Asthma Prediction (Figures 1 & 2)
-3.  PheWASs by Ancestry Group (Figure 3)
-4.  Analysis in Non-asthmatics (Figures 4,5, & 6)
-5.  HLA Effects (Figure 7)
-6.  Trait Mediation Analysis (Figure 8)
+1.  PRS Model Comparison (Figure 1)
+2.  PRS Asthma Prediction (Figures 2 & 3)
+3.  PheWASs by Ancestry Group (Figure 4)
+4.  Comparison of PRS model PheWAS results (Figure 5)
+5.  Analysis in Non-asthmatics (Figure 6)
+6.  HLA Effects (Figure 7)
+7.  Trait Mediation Analysis (Figure 8)
+
+# PRS_phewas_figs.R
+This R script contains all the code used to generate the figures included in the manuscript
