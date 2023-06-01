@@ -1,19 +1,21 @@
-####  LOAD LIBRARIES  ##############################################################################
+####  SET PARAMETERS  ##############################################################################
+#
+#  NOTE: even if running an individual section, these parameters should be saved first
+#
 
-library(pROC)
-library(sjmisc)
-library(plotrix)
-library(scales)
-library(emmeans)
-library(ggplot2)
-library(ggnewscale)
-library(tidyverse)
-library(ggrepel)
-library(ggtext)
-library(grid)
-library(stringr)
-library(forestplot)
-library(robmed)
+set.seed(0123456789)
+
+bw <- 'White'; nbw <- 'non-British White'; afr <- 'African'
+prs <- 'zscore'; covars <- paste0('+sex',paste(paste0('+pc',1:10),collapse=''))
+afr_covars <- paste0('+sex',paste(paste0('+pc',1:20),collapse=''))
+coa <- 'asthma_children'; aoa <- 'asthma_adults'; asthma <- 'asthma_all'
+ukb_var <- 'ukb_variable'
+
+# These paths would be user-specific
+# score_dir <- [/path/to/directory/with/prs/scores]
+# pheno_dir <- [/path/to/directory/with/phenotype/data]
+# output_dir <- [/path/to/output/directory]
+
 
 ####  FUNCTIONS  ###################################################################################
 
@@ -35,43 +37,40 @@ sfrac <- function(top, bottom, data=NULL) {
   with(data,lapply(paste0(top,"\n",bottom)))
 }
 
-
-####  SET PARAMETERS  ##############################################################################
-#
-#  NOTE: even if running an individual section, these parameters should be saved first
-#
-
-bw <- 'White'; nbw <- 'non-British White'; afr <- 'African'
-prs <- 'zscore'; covars <- paste0('+sex',paste(paste0('+pc',1:10),collapse=''))
-afr_covars <- paste0('+sex',paste(paste0('+pc',1:20),collapse=''))
-coa <- 'asthma_children'; aoa <- 'asthma_adults'; asthma <- 'asthma_all'
-
-# These paths are user-specific
-# score_dir <- [/path/to/directory/with/prs/scores]
-# pheno_dir <- [/path/to/directory/with/phenotype/data]
-# output_dir <- [/path/to/output/directory]
+get_r2 <- function(model, null_model, n, n_cases) {
+  # Calculate r2 on liability scale (Lee, AJHG, 2012), assuming k=p
+  LL1 <-  logLik(model)
+  LL0 <-  logLik(null_model)
+  r2_CS <- 1 - exp(2*(LL0[1] - LL1[1])/n)
+  k <- n_cases / n
+  t <- qnorm(1 - k)
+  z <- dnorm(t)
+  c <- k*(1-k)/(z^2)
+  r2 <- c*r2_CS
+  return(r2)
+}
 
 
 ####  READ INPUT DATA  ############################################################################
 
 # Read asthma phenotype data
-asthma_phenos <- read.csv(paste0(pheno_dir, "/asthma--data.csv"))  # asthma phenotypes
-asthma_covars <- read.csv(paste0(pheno_dir, "/asthma--covariates.csv"))  # regression covariates
-asthma_dat <- merge(asthma_phenos, asthma_covars, by='eid')
+# asthma_phenos <- read.csv(paste0(pheno_dir, "/asthma--data.csv"))  # asthma phenotypes
+# asthma_covars <- read.csv(paste0(pheno_dir, "/asthma--covariates.csv"))  # regression covariates
+# asthma_dat <- merge(asthma_phenos, asthma_covars, by='eid')
 
-trait_dat <- read.csv(paste0(pheno_dir, "/pwas--traits.csv"))  # ukb ethnicity and trait data
+# trait_dat <- read.csv(paste0(pheno_dir, "/pwas--traits.csv"))  # ukb ethnicity and trait data
 
-trait_dat <- merge(asthma_dat[,!names(asthma_dat) %in% names(trait_dat)[2:ncol(trait_dat)]], trait_dat,
-                  by='eid')  # combine traits and covariates, avoid duplicate columns
+# trait_dat <- merge(asthma_dat[,!names(asthma_dat) %in% names(trait_dat)[2:ncol(trait_dat)]], trait_dat,
+#                   by='eid')  # combine traits and covariates, avoid duplicate columns
 
-trait_dat$ancestry <- ifelse((trait_dat$ethnic_background==1001 & trait_dat$genetic_ethnic_grouping==1), bw,
-                            ifelse(trait_dat$ethnic_background %in% c(1002,1003), nbw,
-                                   ifelse((trait_dat$ethnic_background %in% c(4,4001,4002,4003) & 
-                                             trait_dat$pc1>150),afr,NA)))  # apply ancestry definitions
+# trait_dat$ancestry <- ifelse((trait_dat$ethnic_background==1001 & trait_dat$genetic_ethnic_grouping==1), bw,
+#                             ifelse(trait_dat$ethnic_background %in% c(1002,1003), nbw,
+#                                    ifelse((trait_dat$ethnic_background %in% c(4,4001,4002,4003) & 
+#                                              trait_dat$pc1>150),afr,NA)))  # apply ancestry definitions
 
 # write.table(trait_dat, paste0(pheno_dir, '/ukb.trait.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
 
-rm(asthma_phenos, asthma_covars, asthma_dat)
+trait_dat <- read.csv(paste0(pheno_dir, "/ukb.trait.data.csv"))  # ukb ethnicity and trait data
 
 
 ###############################################################################################
@@ -82,41 +81,122 @@ rm(asthma_phenos, asthma_covars, asthma_dat)
 #   between the PRS models
 #
 
-# library(pROC)
+library(pROC)
 
-# trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.data.csv'), header=T)
+## trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.data.csv'), header=T)
 
 # Read PRS scores, compute asthma prediction
-predict_df <- data.frame(matrix(ncol=9, nrow=0))
-colnames(predict_df) <- c('LD','TAGC_pop', 'UKB_ancestry','Asthma_pheno','AUC','OR','OR_95CI_L','OR_95CI_U','P')
-i <- 1    
-for (ld in c('1KG','UKB')) {
-  for (pop in c('EUR','ME')) {
-    print(paste0('PRScs.',ld,'_LD.TAGC_',pop))
-    scores <- read.table(paste0(score_dir, '/PRScs.',ld,'_LD.TAGC_',pop,'.UKB_scores.txt'), header=T)
-    scores[,prs] <- ztransform(scores$SCORE_SUM)
-    scores <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID")
-    for (anc in c(bw, nbw, afr)) {
-      print(paste0('  ',anc))
-      for (case in c(asthma, coa, aoa)) {
-        print(paste0('    ',case))
-        roc_auc <- roc(scores[scores$ancestry==anc,case],scores[scores$ancestry==anc,prs], plot=F, quiet=T)$auc[1]
-        if (anc==afr) {
-          model <- glm(paste0(case,'~',prs,afr_covars), data=scores[scores$ancestry==anc,], family='binomial')
-        } else {
-          model <- glm(paste0(case,'~',prs,covars), data=scores[scores$ancestry==anc,], family='binomial')
+n_replicates <- 2
+predict_df <- data.frame(matrix(ncol=14, nrow=0))
+colnames(predict_df) <- c('Study','LD', 'UKB_ancestry','Asthma_pheno','AUC','AUC_95CI_L','AUC_95CI_U',
+                          'r2','r2_2.5','r2_97.5','OR','OR_95CI_L','OR_95CI_U','P')
+
+i <- 1
+for (study in c('TAGC', 'GBMI')) {
+  if (study=='TAGC') {
+    for (ld in c('1KG','UKB')) {
+      for (pop in c('EUR','ME')) {
+        print(paste0('PRScs.',ld,'_LD.TAGC_',pop))
+        scores <- read.table(paste0(score_dir, '/PRScs.',ld,'_LD.TAGC_',pop,'.UKB_scores.txt'), header=T)
+        scores[,prs] <- ztransform(scores$SCORE_SUM)
+        scores <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID") 
+        for (anc in c(bw, nbw, afr)) {
+          print(paste0('  ',anc))
+          cvs <- ifelse(anc==afr, afr_covars, covars)
+          model_dat <- scores[which(scores$ancestry==anc),]
+          for (case in c(asthma, coa, aoa)) {
+            print(paste0('    ',case))
+            case_cntl <- table(model_dat[,case])
+            n <- sum(case_cntl)
+            roc_auc <- roc(model_dat[,case], model_dat[,prs], plot=F, quiet=T)$auc[1]
+            
+            model <- glm(paste0(case,'~',prs,cvs), data=model_dat, family=binomial(logit))
+            null_model <- glm(paste0(case,'~',substr(cvs,2,nchar(cvs))), data=model_dat, family=binomial(logit))
+            
+            r2 <- get_r2(model, null_model, n, case_cntl[2])
+            
+            # calculate 95% CI for r2 and AUC
+            r2_values <- rep(NA, n_replicates)
+            auc_values <- rep(NA, n_replicates)
+            for (r in 1:n_replicates) {
+              print(r)
+              sample_dat <- model_dat[sample(nrow(model_dat), replace=TRUE),]
+              case_cntl_sample <- table(sample_dat[,case])
+              sample_model <- glm(paste0(case,'~',prs,cvs), data=sample_dat, family=binomial(logit))
+              sample_null_model <- glm(paste0(case,'~',substr(cvs,2,nchar(cvs))), data=sample_dat, family=binomial(logit))
+              r2_values[r] <- get_r2(sample_model, sample_null_model, n, case_cntl_sample[2])
+              auc_values <- roc(sample_dat[,case], sample_dat[,prs], plot=F, quiet=T)$auc[1]
+            }
+            
+            lower_ci_r2 <- quantile(as.numeric(r2_values), 0.025)
+            upper_ci_r2 <- quantile(as.numeric(r2_values), 0.975)
+            lower_ci_auc <- quantile(as.numeric(auc_values), 0.025)
+            upper_ci_auc <- quantile(as.numeric(auc_values), 0.975)
+            
+            predict_df[i,] <- c(paste0('TAGC_',pop), ld, anc, case, roc_auc, lower_ci_auc, upper_ci_auc, 
+                                r2, lower_ci_r2, upper_ci_r2,
+                                exp(model$coefficients[2])[[1]], 
+                                exp(model$coefficients[2]-1.96*sqrt(diag(vcov(model)))[2])[[1]],
+                                exp(model$coefficients[2]+1.96*sqrt(diag(vcov(model)))[2])[[1]],
+                                coef(summary(model))[2,4])
+            i <- i+1
+          }
         }
-        predict_df[i,] <- c(ld, pop, anc, case, roc_auc, exp(model$coefficients[2])[[1]], 
-                            exp(model$coefficients[2]-1.96*sqrt(diag(vcov(model)))[2])[[1]],
-                            exp(model$coefficients[2]+1.96*sqrt(diag(vcov(model)))[2])[[1]],
-                            coef(summary(model))[2,4])
-        i <- i+1
       }
     }
   }
 }
 
-write.table(predict_df, paste0(output_dir, '/asthma_prs_prediction.txt'), quote=F, row.names=F,col.names=T, sep="\t")
+
+# GBMI Model
+scores <- read.table(paste0(score_dir, '/PRScs.1KG_LD.GBMI.UKB_scores.txt'), header=T)
+scores[,prs] <- ztransform(scores$SCORE_SUM)
+
+scores <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID")
+for (anc in c(bw, nbw, afr)) {
+  print(paste0('  ',anc))
+  cvs <- ifelse(anc==afr, afr_covars, covars)
+  model_dat <- scores[scores$ancestry==anc,]
+  for (case in c(asthma, coa, aoa)) {
+    print(paste0('    ',case))
+    case_cntl <- table(model_dat[,case])
+    n <- sum(case_cntl)
+    roc_auc <- roc(model_dat[,case], model_dat[,prs], plot=F, quiet=T)$auc[1]
+    
+    model <- glm(paste0(case,'~',prs,cvs), data=model_dat, family=binomial(logit))
+    null_model <- glm(paste0(case,'~',substr(cvs,2,nchar(cvs))), data=model_dat, family=binomial(logit))
+    
+    r2 <- get_r2(model, null_model, n, case_cntl[2])
+    
+    # calculate 95% CI for r2 and AUC
+    r2_values <- rep(NA, n_replicates)
+    auc_values <- rep(NA, n_replicates)
+    for (r in 1:n_replicates) {
+      print(r)
+      sample_dat <- model_dat[sample(nrow(model_dat), replace=TRUE),]
+      case_cntl_sample <- table(sample_dat[,case])
+      sample_model <- glm(paste0(case,'~',prs,cvs), data=sample_dat, family=binomial(logit))
+      sample_null_model <- glm(paste0(case,'~',substr(cvs,2,nchar(cvs))), data=sample_dat, family=binomial(logit))
+      r2_values[r] <- get_r2(sample_model, sample_null_model, n, case_cntl_sample[2])
+      auc_values <- roc(sample_dat[,case], sample_dat[,prs], plot=F, quiet=T)$auc[1]
+    }
+    
+    lower_ci_r2 <- quantile(as.numeric(r2_values), 0.025)
+    upper_ci_r2 <- quantile(as.numeric(r2_values), 0.975)
+    lower_ci_auc <- quantile(as.numeric(auc_values), 0.025)
+    upper_ci_auc <- quantile(as.numeric(auc_values), 0.975)
+    
+    predict_df[i,] <- c('GBMI', '1KG', anc, case, roc_auc, lower_ci_auc, upper_ci_auc, 
+                        r2, lower_ci_r2, upper_ci_r2,
+                        exp(model$coefficients[2])[[1]], 
+                        exp(model$coefficients[2]-1.96*sqrt(diag(vcov(model)))[2])[[1]],
+                        exp(model$coefficients[2]+1.96*sqrt(diag(vcov(model)))[2])[[1]],
+                        coef(summary(model))[2,4])
+    i <- i+1
+  }
+}
+
+write.table(predict_df, paste0(output_dir, '/asthma_prs_prediction_r2liability.txt'), quote=F, row.names=F,col.names=T, sep="\t")
 
 
 ###############################################################################################
@@ -136,7 +216,7 @@ write.table(predict_df, paste0(output_dir, '/asthma_prs_prediction.txt'), quote=
 
 # trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.data.csv'), header=T)
 
-score <- read.table(paste0(score_dir, '/PRScs.UKB_LD.TAGC_ME.UKB_scores.txt'), header=T)
+score <- read.table(paste0(score_dir, '/PRScs.1KG_LD.GBMI.UKB_scores.txt'), header=T)
 score[,prs] <- ztransform(score$SCORE_SUM)
 trait_dat <- merge(trait_dat, score[,c("IID", prs)], by.x="eid", by.y="IID")
 
@@ -187,7 +267,7 @@ for (phenotype in c(coa, aoa, asthma)){
     if (quant=='(40-60]') {
       quantile_dat[quantile_dat$Quantile==quant,c('OR','95CI_L','95CI_U')] <- 1
     } else {
-      tmp_dat <- trait_dat[trait_dat[,q] %in% c(quant, '(40-60]'),]
+      tmp_dat <- trait_dat[(trait_dat$ancestry==bw) & (trait_dat[,q] %in% c(quant, '(40-60]')),]
       tmp_dat[,q] <- factor(tmp_dat[,q])
       tmp_dat[,q] <- relevel(tmp_dat[,q], ref = '(40-60]')
       f_lm <- paste0(phenotype,'~',covars,'+',q)
@@ -214,183 +294,9 @@ summary(model)
 model <- glm(paste0(aoa,'~',prs,covars,'+sex:',prs), data=trait_dat[trait_dat$ancestry==bw,], family='binomial')
 summary(model)
 
-# write.table(trait_dat, paste0(pheno_dir, '/ukb.trait.prs.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
+# write.csv(trait_dat, paste0(pheno_dir, '/ukb.trait.prs.data.csv'), quote=F, row.names=F, col.names=T)
+# save(quantile_dat_asthma, quantile_dat_COA, quantile_dat_AOA, file=paste0(output_dir, '/quantile_dat.RData'))
 
-
-#####  FIGURE 1 (PRS Asthma Prediction) #####
-
-### Quantiles - All asthma (Figure 1A)
-pdf(file=paste0(output_dir, '/Fig_1A.pdf'), width=6, height=5)
-par(xpd=F, mar=c(4.5,4.5,2,2), lheight = .3)
-plot(x=1:11, ylim=c(0.093,2.407), xlab='', ylab='', yaxt='n', xaxt = "n", type='n')
-abline(h = seq(0,2.5,.5), lty = 2, col = 'grey80')
-abline(h = 1, lty = 1, col = 'grey')
-par(new=TRUE)
-plotCI(x=1:11, y=quantile_dat_asthma$OR, li=quantile_dat_asthma[,c('95CI_L')], ui=quantile_dat_asthma[,c('95CI_U')], 
-       xlab='\nPRS Quantile (%)', ylab='Odds Ratio (OR)', xaxt = "n", pt.bg='#9F10F8', sfrac=0.001, lwd=2.5, cex.axis=.8,
-       scol='#9F10F8', cex=1, pch=21, ylim=c(0.093,2.407), yaxt='n', cex.lab=0.9)
-axis(1, at=1:11, labels = FALSE)
-text(1:11, par("usr")[3] - 0.11, labels = quantile_dat_COA$Quantile, srt = 35, pos = 1, xpd = TRUE, cex=0.8)
-
-axis(2,seq(0,2.5,.5), labels = c('0.0','0.5','1.0','1.5','2.0','2.5'), xpd = TRUE, cex.axis=0.8, las=2)
-dev.off()
-
-### Quantiles -  COA & AOA (Figure 1C)
-pdf(file=paste0(output_dir, '/Fig_1C.pdf'), width=6, height=5)
-par(xpd=F, mar=c(4.5,4.5,2,2), lheight = .3)
-plot(x=1:11, ylim=c(0.135,3.5), xlab='', ylab='', yaxt='n', xaxt = "n", type='n')
-abline(h = seq(0,4,.5), lty = 2, col = 'grey80')
-abline(h = 1, lty = 1, col = 'grey')
-par(new=TRUE)
-plotCI(x=1:11, y=quantile_dat_COA$OR, li=quantile_dat_COA[,c('95CI_L')], ui=quantile_dat_COA[,c('95CI_U')], 
-       xlab='\nPRS Quantile (%)', ylab='Odds Ratio (OR)', xaxt = "n", pt.bg='#22D378', sfrac=0.001, lwd=2.5, cex.axis=.8,
-       scol='#22D378', cex=0.8, pch=21, ylim=c(0.135,3.5), yaxt='n', cex.lab=0.9)
-axis(1, at=1:11, labels = FALSE)
-text(1:11, par("usr")[3] - 0.18, labels = quantile_dat_COA$Quantile, srt = 35, pos = 1, xpd = TRUE, cex=0.8)
-axis(2,seq(0,3.5,.5), labels = c('0.0','0.5','1.0','1.5','2.0','2.5','3.0','3.5'), xpd = TRUE, cex.axis=0.8, las=2)
-par(new=TRUE)
-plotCI(x=1:11, y=quantile_dat_AOA$OR, li=quantile_dat_AOA[,c('95CI_L')], ui=quantile_dat_AOA[,c('95CI_U')], 
-       xlab='', ylab='', xaxt = "n", pt.bg='#FB9700', sfrac=0.001, lwd=2.5, 
-       scol='#FB9700', cex=0.8, pch=21, ylim=c(0.135,3.5), yaxt='n')
-points(x=6,y=1, pch=21, lwd=2.5, bg=alpha('#22D378',.4), cex=0.8)
-# Key labels
-legend("topleft", inset=0.01, legend=c("COA", "AOA"), lwd=2, col=c('#22D378','#FB9700'),
-       pch=c(16,16), bty='n', cex=0.8, pt.cex = 1.1)
-legend("topleft", inset=0.01, col='black', legend=c("", ""),  lty=F, lwd=1.5,
-       pch=c(21,21), bty='n', cex=0.8, pt.cex = 1.1)
-dev.off()
-
-### DENSITY PLOT (Fig 1B)
-plot_dat <- trait_dat[trait_dat$ancestry==bw,]
-
-pdf(file=paste0(output_dir, '/Fig_1B.pdf'), width=6, height=5)
-par(xpd=F, mar=c(4.1,4.5,2,2), lheight = .3)
-plot(density(plot_dat[!is.na(plot_dat$asthma_adults) & (plot_dat$asthma_adults==1),'zscore']), col='orange2',lwd=1.5,
-     xlim=c(-4,4), ylim=c(0.015,0.4), main='', xaxt='n', yaxt='n', xlab='PRS\n')
-axis(2,seq(0,0.4,.1), labels = c('0.0','0.1','0.2','0.3','0.4'), xpd = TRUE, cex.axis=0.85, las=2)
-par(new=TRUE)
-plot(density(plot_dat[!is.na(plot_dat$asthma_children) & (plot_dat$asthma_children==1),'zscore']), col='seagreen3',lwd=1.5,
-     xlim=c(-4,4), ylim=c(0.015,0.4), main='', xaxt='n', yaxt='n', xlab='', ylab='')
-par(new=TRUE)
-plot(density(plot_dat[!is.na(plot_dat$asthma_all) & (plot_dat$asthma_all==1),'zscore']), col='purple2',lwd=1.5,
-     xlim=c(-4,4), ylim=c(0.015,0.4), main='', xaxt='n', yaxt='n', xlab='', ylab='')
-par(new=TRUE)
-plot(density(plot_dat[!is.na(plot_dat$asthma_all) & (plot_dat$asthma_all==0),'zscore']), col='black',lwd=1.5,
-     xlim=c(-4,4), ylim=c(0.015,0.4), main='', xaxt='n', yaxt='n', xlab='', ylab='')
-abline(v = mean(plot_dat[!is.na(plot_dat$asthma_adults) & (plot_dat$asthma_adults==1),'zscore']), lty=3, lwd=1.5, col='#FB9700')
-abline(v = mean(plot_dat[!is.na(plot_dat$asthma_children) & (plot_dat$asthma_children==1),'zscore']), lty=3, lwd=1.5, col='#22D378')
-abline(v = mean(plot_dat[!is.na(plot_dat$asthma_all) & (plot_dat$asthma_all==1),'zscore']), lty=3,lwd=1.5, col='#9F10F8')
-abline(v = mean(plot_dat[!is.na(plot_dat$asthma_all) & (plot_dat$asthma_all==0),'zscore']), lty=3, lwd=1.5, col='black')
-axis(1, at=-4:4, labels = NA)
-text(-4:4, par("usr")[3] - 0.013, labels = c('-4','-3','-2','-1','0','1','2','3','4'), pos = 1, xpd = TRUE, cex=0.85)
-legend("topleft", inset=0.02, legend=c("No Asthma", "Asthma","COA", "AOA"), 
-       pt.bg=c('black','purple2','seagreen3','orange2'),
-       pch=c(22,22,22,22), bty='n', cex=0.85, pt.cex = 1.15)
-dev.off()
-
-### AUC PLOT (Fig 1D)
-pdf(file=paste0(output_dir, '/Fig_1D.pdf'), width=6, height=5)
-par(mar = c(4, 4, 4, 4)+.1)
-plot.roc(plot_dat$asthma_all, plot_dat$zscore, main="", xlim=c(0.963,0.037), ylim=c(0.037,0.963),
-         col='purple2', asp=F, xaxt='n', yaxt='n')
-legend("bottomright", title="AUC", inset=0.02, legend=c("COA: 0.640", "AOA: 0.561", "All:    0.588"), 
-       col=c('seagreen3','orange2','purple2'),
-       pch=c(15,15,15), bty='n', cex=0.85, pt.cex = 1.15)
-plot.roc(plot_dat$asthma_children, plot_dat$zscore,col='seagreen3', add=TRUE)
-plot.roc(plot_dat$asthma_adults, plot_dat$zscore ,col='orange2', add=TRUE)
-axis(2, seq(0,1,.2), labels = c('0.0','0.2','0.4','0.6','0.8','1.0'), xpd = TRUE, cex.axis=0.85, las=2)
-axis(1, seq(1,0,-.2), labels = NA)
-text(seq(1,0,-.2), par("usr")[3] - 0.03, labels = c('1.0','0.8','0.6','0.4','0.2','0.0'), pos = 1, xpd = TRUE, cex=0.85)
-dev.off()
-
-
-#####  FIGURE 2 (PRS by Sex and Age of Onset) #####
-
-### PRS VS RISK LINEAR SCALE (Fig 2A)
-range <- seq(from=-6, to=6, by=0.1)
-
-fit_coa <- glm(asthma_children ~ pc1 + pc2 + pc3 + pc4 + pc5 + pc6 + pc7 + pc8 + pc9 + pc10 + zscore*sex, 
-               data=trait_dat[trait_dat$ancestry=='White',], family='binomial')
-c_pval <- summary(fit_coa)$coefficients[nrow(summary(fit_coa)$coefficient),4]
-c_emm <- emmeans(fit_coa,~zscore*sex,type="response",at= list(zscore=range, sex=c('M','F')))
-c_emm2 <- as.data.frame(c_emm)
-c_emm2$lower <- confint(c_emm,adjust='none',level=0.95)$asymp.LCL
-c_emm2$upper <- confint(c_emm,adjust='none',level=0.95)$asymp.UCL
-
-fit_aoa <- glm(asthma_adults ~ pc1 + pc2 + pc3 + pc4 + pc5 + pc6 + pc7 + pc8 + pc9 + pc10 + sex*zscore,
-               data=trait_dat[trait_dat$ancestry=='White',], family='binomial')
-a_pval <- summary(fit_aoa)$coefficients[nrow(summary(fit_aoa)$coefficient),4]
-a_emm <- emmeans(fit_aoa,~zscore*sex,type="response",at= list(zscore=range,sex=c('M','F')))
-a_emm2 <- as.data.frame(a_emm)
-a_emm2$lower<-confint(a_emm,adjust='none',level=0.95)$asymp.LCL
-a_emm2$upper<-confint(a_emm,adjust='none',level=0.95)$asymp.UCL
-
-pdf(file=paste0(output_dir, '/Fig_2A.pdf'), width=6, height=5)
-ggplot(a_emm2, aes(x=zscore, y=prob,fill=as.factor(sex),)) + 
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha=0.9) + 
-  geom_line(data=a_emm2, aes(color=as.factor(sex))) + labs(fill="Adult onset") + 
-  scale_fill_manual(labels=c("Male","Female"), values = c('#BFA373','#FDC372')) + 
-  scale_colour_manual(values=c('#934900','#D16E00'),guide='none') +
-  coord_cartesian(ylim = c(0.014, 0.27), xlim = c(-4.5,4.5)) +
-  scale_y_continuous(name ="Risk", limits=c(0,.35), breaks = c(0,0.05,0.1,0.15,0.2,0.25), 
-                     labels = c('0%','5%','10%','15%','20%','25%')) +
-  scale_x_continuous(name='PRS',limits = c(-5,5), breaks=c(-4:4), 
-                     labels=c('-4','-3','-2','-1','0','1','2','3','4')) +
-  new_scale_fill() + new_scale_colour() + theme_bw() +
-  geom_ribbon(data=c_emm2, aes(ymin = lower, ymax = upper,fill=as.factor(sex)), alpha=0.75) +
-  geom_line(data=c_emm2, aes(color=as.factor(sex))) + labs(fill="Childhood onset") +
-  scale_fill_manual(labels=c("Male","Female"), values = c('#409348','seagreen2')) +
-  scale_colour_manual(values=c('#096000','seagreen4'),guide='none') +
-  theme(axis.title=element_text(size=14,face="bold"), axis.text = element_text(size = 12),
-        strip.text = element_text(size=12), legend.text=element_text(size=10),
-        legend.title=element_text(size=10, face = "bold"), plot.title = element_text(size = 18, face = "bold"),
-        panel.border=element_rect(colour = "black", fill=NA, size=1.25),
-        legend.justification = c(0.05, 0.94), legend.position = c(0.05, 0.94),
-        legend.box.background = element_rect(fill=alpha('white',0.75), color=alpha('gray80',0.75)),
-        axis.title.x=element_text(vjust=-1), axis.title.y=element_text(vjust=1))
-dev.off()
-
-### PRS VS COA RISK LOG SCALE (FIG 2B)
-pdf(file=paste0(output_dir, '/Fig_2B.pdf'), width=5, height=4)
-ggplot(c_emm2, aes(x=zscore, y=prob,fill=as.factor(sex),)) + 
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha=0.75) + 
-  geom_line(data=c_emm2, aes(color=as.factor(sex))) + labs(fill="Childhood onset") +
-  scale_fill_manual(labels=c("Male","Female"), values = c('#409348','seagreen2')) +
-  scale_colour_manual(values=c('#096000','seagreen4'),guide='none') +
-  coord_cartesian(xlim = c(-3.68,3.68)) + theme_bw() +
-  scale_y_continuous(name ="Risk", trans = log_trans(), limits=c(0.002,.20),
-                     breaks = c(0.0025,0.005,0.01,0.025,0.05,0.15),
-                     labels = c('0.25%','0.5%','1%','2.5%','5%','15%')) +
-  scale_x_continuous(name='PRS', limits = c(-4.5,4.5), breaks=c(-4:4), labels=c('-4','-3','-2','-1','0','1','2','3','4')) +
-  theme(axis.title=element_text(size=14,face="bold"), axis.text = element_text(size = 12),
-        strip.text = element_text(size=12), legend.text=element_text(size=10.5),
-        legend.title=element_text(size=11, face = "bold"), plot.title = element_text(size = 18, face = "bold"),
-        panel.border=element_rect(colour = "black", fill=NA, size=1.25),
-        legend.justification = c(0.95, 0.06), legend.position = c(0.95, 0.06),
-        legend.box.background = element_rect(fill=alpha('white',0.75), color=alpha('gray80',0.75)),
-        axis.title.x=element_text(vjust=-1), axis.title.y=element_text(vjust=1))
-dev.off()
-
-### PRS VS AOA RISK LOG SCALE (FIG 2C)
-pdf(file=paste0(output_dir, '/Fig_2C.pdf'), width=5, height=4)
-ggplot(a_emm2, aes(x=zscore, y=prob,fill=as.factor(sex),)) + 
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha=0.9) + 
-  geom_line(data=a_emm2, aes(color=as.factor(sex))) + labs(fill="Adult onset") + 
-  scale_fill_manual(labels=c("Male","Female"), values = c('#BFA373','#FDC372')) + 
-  scale_colour_manual(values=c('#934900','#D16E00'),guide='none') +
-  coord_cartesian(xlim = c(-3.68,3.68)) +
-  scale_y_continuous(name ="Risk", trans = log_trans(), limits=c(0.002,.20),
-                     breaks = c(0.0025,0.005,0.01,0.025,0.05,0.15),
-                     labels = c('0.25%','0.5%','1%','2.5%','5%','15%')) + theme_bw() +
-  scale_x_continuous(name='PRS', limits = c(-4.5,4.5), breaks=c(-4:4), labels=c('-4','-3','-2','-1','0','1','2','3','4')) +
-  theme(axis.title=element_text(size=14,face="bold"), axis.text = element_text(size = 12),
-        strip.text = element_text(size=12), legend.text=element_text(size=10.5),
-        legend.title=element_text(size=11, face = "bold"), plot.title = element_text(size = 18, face = "bold"),
-        panel.border=element_rect(colour = "black", fill=NA, size=1.25),
-        legend.justification = c(0.95, 0.06), legend.position = c(0.95, 0.06),
-        legend.box.background = element_rect(fill=alpha('white',0.75), color=alpha('gray80',0.75)),
-        axis.title.x=element_text(vjust=-1), axis.title.y=element_text(vjust=1))
-dev.off()
 
 ###############################################################################################
 ### 3.  PheWASs by ancestry group                                                           ###
@@ -407,11 +313,10 @@ dev.off()
 
 # trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.prs.data.csv'), header=T)
 
-
 pwas_metadata <- read.table(paste0(pheno_dir,'/pwas_metadata.tsv'), header=T, sep='\t', quote="")
 
-quant_traits <- pwas_metadata[pwas_metadata$bin==0,'ukb_variable']
-bin_traits <- pwas_metadata[pwas_metadata$bin==1,'ukb_variable']
+quant_traits <- pwas_metadata[pwas_metadata$bin==0,ukb_var]
+bin_traits <- pwas_metadata[pwas_metadata$bin==1,ukb_var]
 
 pwas_dat <- trait_dat[,c('eid',asthma, prs,'ancestry', strsplit(afr_covars,'+',fixed=T)[[1]][-1],
                          bin_traits, quant_traits)]
@@ -421,8 +326,8 @@ for (trait in quant_traits) {
 }
 
 # Run PheWAS in each ancestry group
-pwas_results <- data.frame(matrix(ncol=12, nrow=0))
-colnames(pwas_results) <- c(names(pwas_metadata),'ancestry','sex','beta','se','p','n')
+pwas_results <- data.frame(matrix(ncol=13, nrow=0))
+colnames(pwas_results) <- c(names(pwas_metadata),'ancestry','sex','beta','se','p','n', 'df')
 i <- 1 
 for (anc in c(bw, nbw, afr)) {
   print(anc)
@@ -451,240 +356,271 @@ for (anc in c(bw, nbw, afr)) {
             }
         s <- summary(model)
         c(pwas_metadata[pwas_metadata$ukb_variable==trait,], anc, paste(sexes,collapse=' & '),
-          model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals))
+          model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals), df.residual(model))
         },
       error=function(e){
-        return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], anc, rep(NA,5)))
+        return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], anc, rep(NA,6)))
         }
       )
     i <- i+1
   }
 }
 
-sig_traits <- pwas_results[(pwas_results$ancestry==bw) & (pwas_results$p<0.05/(nrow(pwas_results)/3)),'ukb_variable']
-rep_traits <- na.exclude(pwas_results[(pwas_results$ancestry==afr) & (pwas_results$p<0.05/(nrow(pwas_results)/3)) & (pwas_results$ukb_variable %in% sig_traits),'ukb_variable'])
+
+### Test replication in other ancestries
+sig_trait_dat <- merge(pwas_results[(pwas_results$ancestry==bw) & 
+                                      (pwas_results$p<0.05/(nrow(pwas_results)/3)), c(ukb_var,'beta','p')],
+                       pwas_results[(pwas_results$ancestry==nbw), c(ukb_var,'beta','p')], 
+                       by=ukb_var, all.x=T)
+sig_trait_dat <- merge(sig_trait_dat,
+                       pwas_results[(pwas_results$ancestry==afr), c(ukb_var,'beta','p')], 
+                       by=ukb_var, all.x=T)
+names(sig_trait_dat) <- c(ukb_var, 'beta.bw','p.bw','beta.nbw','p.nbw','beta.afr','p.afr')
+
+sig_traits <- sig_trait_dat$ukb_variable
+
+rep_traits_nbw <- na.exclude(sig_trait_dat[(sig_trait_dat$p.nbw<0.05) & 
+                                            (sig_trait_dat$beta.bw*sig_trait_dat$beta.nbw>0),ukb_var])
+
+rep_traits_afr <- na.exclude(sig_trait_dat[(sig_trait_dat$p.afr<0.05) & 
+                                             (sig_trait_dat$beta.bw*sig_trait_dat$beta.afr>0),ukb_var])
+
 
 ### Test for African ancestry-specific effects
+
+# Run PheWAS in each ancestry group
+pwas_results_w <- data.frame(matrix(ncol=12, nrow=0))
+colnames(pwas_results_w) <- c(names(pwas_metadata),'sex','beta','se','p','n', 'df')
+i <- 1 
+
+for (trait in rep_traits_afr[rep_traits_afr %in% rep_traits_nbw]) {
+  print(c(i, trait))
+  sex_check <- colSums(table(pwas_dat[,c(trait,'sex')])>0)>=2  # checks case/control counts for each sex
+  sexes <- names(sex_check[sex_check>0])
+  test_dat <- pwas_dat[(pwas_dat$sex %in% sexes) & (pwas_dat$ancestry %in% c(bw, nbw)),
+                       c(trait,prs,strsplit(covars,'+',fixed=T)[[1]][-1], 'ancestry')]
+  if (length(sexes)<2) {
+    model_covars <- substr(covars, 5, nchar(covars))
+  } else {
+    model_covars <- covars
+  }
+  pwas_results_w[i,] <- tryCatch(
+    {
+      if (trait %in% bin_traits) {
+        model <- glm(paste0(trait,'~',prs,model_covars), data=test_dat, family=binomial)
+      } else {
+        model <- lm(paste0(trait,'~',prs,model_covars), data=test_dat)
+      }
+      s <- summary(model)
+      c(pwas_metadata[pwas_metadata$ukb_variable==trait,], paste(sexes,collapse=' & '),
+        model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals), df.residual(model))
+    },
+    error=function(e){
+      return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], anc, rep(NA,6)))
+    }
+  )
+  i <- i+1
+}
+
+
+# Using Wald/T statistic 
+anc_comp <- merge(pwas_results_w, 
+                  pwas_results[pwas_results$ancestry==afr,c('ukb_variable','beta','se','p','n','df')], 
+                  by='ukb_variable')
+#anc_comp <- anc_comp[anc_comp$ukb_variable %in% rep_traits_afr[rep_traits_afr %in% rep_traits_nbw],]
+names(anc_comp) <- gsub(x = names(anc_comp), pattern = "\\.x", replacement = "\\.w")  
+names(anc_comp) <- gsub(x = names(anc_comp), pattern = "\\.y", replacement = "\\.afr")  
+
+anc_comp$p_diff <- ifelse(anc_comp$ukb_variable %in% bin_traits,
+                                 pchisq(((anc_comp$beta.w-anc_comp$beta.afr)/
+                                           sqrt(anc_comp$se.w^2 + anc_comp$se.afr^2))^2, df=1, lower.tail=F),
+                                 2*pt(abs((anc_comp$beta.w-anc_comp$beta.afr)/
+                                            sqrt(anc_comp$se.w^2 + anc_comp$se.afr^2)), 
+                                      df=pmin(anc_comp$df.w, anc_comp$df.afr), lower.tail=F))
+
+anc_comp$sig <- ifelse(anc_comp$p_diff<.05/length(rep_traits_afr[rep_traits_afr %in% rep_traits_nbw]),1,0)
+
+# Using interaction model
 pwas_dat$afr <- ifelse(pwas_dat$ancestry==afr,1,0)
-for (trait in rep_traits){
+for (trait in rep_traits_afr[rep_traits_afr %in% rep_traits_nbw]){
+  sex_check <- colSums(table(pwas_dat[,c(trait,'sex')])>0)>=2  # checks case/control counts for each sex
+  sexes <- names(sex_check[sex_check>0])
+  if (length(sexes)<2) {
+    model_covars <- substr(afr_covars, 5, nchar(afr_covars))
+    b <- 23
+  } else {
+    model_covars <- afr_covars
+    b <- 24
+  }
   if (trait %in% bin_traits) {
-    model <- glm(paste0(trait,'~',afr_covars,'+afr*',prs), data=pwas_dat, family='binomial')
+    model <- glm(paste0(trait,'~',prs,'+',model_covars,'+afr:',prs), data=pwas_dat, family='binomial')
+  } else {
+    model <- lm(paste0(trait,'~',prs,'+',model_covars,'+afr:',prs), data=pwas_dat)
   }
-  else {
-    model <- lm(paste0(trait,'~',afr_covars,'+afr*',prs), data=pwas_dat)
-  }
-  if (summary(model)$coefficients[25,4]<0.05) {
-    print(c(trait, summary(model)$coefficients[25,]))
+  anc_comp[anc_comp$ukb_variable==trait,'p_diff'] <- summary(model)$coefficients[b,4]
+  if (summary(model)$coefficients[b,4]<0.05/length(rep_traits_afr)) {
+    results <- summary(model)$coefficients[b,c(1,2,4)]
+    print(c(trait, round(results[1],3), round(results[2], 3), signif(results[3],3)))
   } 
 }
 
 
-# Write PheWAS output tabeles
-
+# Write PheWAS output tables
 # write.table(pwas_dat, paste0(pheno_dir, '/ukb.pwas.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
 write.table(pwas_results, paste0(output_dir, '/phewas_results.txt'), quote=F, row.names=F,col.names=T, sep="\t")
 
 # table_s2 <- pwas_results[pwas_results$ancestry==bw,
-#                         c('display_name','ukb_variable','ukb_data_field','category','beta','se','p','n')]
+#                         c('display_name',ukb_var,'ukb_data_field','category','beta','se','p','n')]
 write.table(pwas_results[pwas_results$ancestry==bw,], paste0(output_dir, '/phewas_results_bw.txt'), 
             quote=F, row.names=F,col.names=T, sep="\t")
 # write.table(table_s2, paste0(output_dir, '/table_s2.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
 
-# table_s4 <- pwas_results[pwas_results$ancestry==nbw,
-#                         c('display_name','ukb_variable','ukb_data_field','category','beta','se','p','n')]
+# table_s5 <- pwas_results[pwas_results$ancestry==nbw,
+#                         c('display_name',ukb_var,'ukb_data_field','category','beta','se','p','n')]
 write.table(pwas_results[pwas_results$ancestry==nbw,], paste0(output_dir, '/phewas_results_nbw.txt'), 
-            quote=F, row.names=F,col.names=T, sep="\t")
-# write.table(table_s4, paste0(output_dir, '/table_s4.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
-
-# table_s5 <- pwas_results[pwas_results$ancestry==afr,
-#                         c('display_name','ukb_variable','ukb_data_field','category','beta','se','p','n')]
-write.table(pwas_results[pwas_results$ancestry==afr,], paste0(output_dir, '/phewas_results_afr.txt'), 
             quote=F, row.names=F,col.names=T, sep="\t")
 # write.table(table_s5, paste0(output_dir, '/table_s5.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
 
-
-#####  FIGURE 3 (PheWAS Results Plot) #####
-#  Create a horizontal 'Manhattan' plot for the PheWAS.
-#    NOTE: Generating a vector image of the plot may be complicated by text-encoding issues,
-#          and additional manipulation was required to get all the labels readable
-#
-
-#pwas_results <- read.delim(paste0(output_dir, '/phewas_results.txt'), header=T, sep='\t')
-
-fig_data <- pwas_results[pwas_results$ancestry==bw,]
-
-# Put traits in desired order
-min_group_p <- tibble(fig_data) %>% group_by(category) %>% summarise(min_p=min(p, na.rm = T))
-min_group_p <- min_group_p[order(min_group_p$min_p),]
-min_group_p$order <- 1:nrow(min_group_p)
-fig_data <- merge(fig_data,min_group_p[,c('category','order')], by='category')
-fig_data <- fig_data[order(fig_data$order,fig_data$display_name),]
-
-# Remove duplicate traits
-n_bonf <- nrow(fig_data)
-fig_data <- data.frame(tibble(fig_data) %>% group_by(display_name) %>% filter(p==min(p)))
-fig_data <- fig_data[!duplicated(fig_data$display_name),]
-
-# Iterate over traits, assigning positions
-n_i <- 1
-for (i in seq(1,nrow(fig_data))) {
-  if (i>1){
-    if (fig_data[i,'category'] != fig_data[i-1,'category'] ) {
-      n_i <- n_i+9
-    }
-  }
-  if (fig_data[i,'p'] < 0.05/n_bonf) {
-      n_i <- n_i+3
-  }
-  fig_data[i,'Pos'] <- n_i
-  n_i <- n_i+1
-}
-
-fig_data$Pos <- n_i-fig_data$Pos
-
-# Prepare Y-axis labels
-fig_data[fig_data$category=='Reproductive, Endocrine & Metabolic','category'] <- 'Reproductive,\nEndocrine & Metabolic'
-fig_data[fig_data$category=='Hematologic & Blood Chemistry','category'] <- 'Hematologic &\nBlood Chemistry'
-
-fig_tibble <- tibble(fig_data)
-y_axis <- fig_tibble %>% group_by(category) %>% summarize(center=(max(Pos) + min(Pos) ) / 2 )
-rects <- fig_tibble %>% group_by(category) %>% summarize(mincat=min(Pos)-5,maxcat=max(Pos)+5)
-totals <- fig_tibble %>% group_by(category) %>% count()
-  
-# Determine whether label will be added
-fig_data$label <- T
-fig_data[fig_data$p>=0.05/n_bonf,'label'] <- F
-fig_data$low_pvals <- NA
-
-fig_data[fig_data$display_name=='Asthma','low_pvals'] <- 'p<4.9e-324'
-fig_data[fig_data$display_name=='Childhood-onset asthma','low_pvals'] <- 'p<4.9e-324'
-fig_data[fig_data$display_name=='Adult-onset asthma','low_pvals'] <- 'p=2.9e-204'
-
-fig_data[fig_data$display_name=='Eosinophils','low_pvals'] <- 'p<4.9e-324'
-fig_data[fig_data$display_name=='Hay fever, allergic rhinitis, eczema','low_pvals'] <- 'p<4.9e-324'
-fig_data[fig_data$display_name=='Tx: albuterol','low_pvals'] <- 'p=1.4e-265'
-fig_data[fig_data$display_name=='Wheezing','low_pvals'] <- 'p=3.0e-258'
-
-
-# Flip betas if necessary
-fig_data[fig_data$invert==1,'beta'] <- fig_data[fig_data$invert==1,'beta']*-1
-fig_data[fig_data$display_name=='Asthma','p'] <- 5e-324
-fig_data[fig_data$display_name=='Eosinophils','p'] <- 5e-324
-fig_data[fig_data$display_name=='Childhood-onset asthma','p'] <- 5e-324
-fig_data[fig_data$display_name=='Hay fever, allergic rhinitis, eczema','p'] <- 5e-324
-
-fig_data[fig_data$display_name=='Adult-onset asthma','Pos'] <- n_i - 19
-#fig_data[fig_data$display_name=='Age asthma diagnosed','Pos'] <- fig_data[fig_data$display_name=='Age asthma diagnosed','Pos'] + 1
-fig_data[fig_data$display_name=='Asthma','Pos'] <- n_i + 3
-fig_data[fig_data$display_name=='Childhood-onset asthma','Pos'] <- n_i - 30
-fig_data[fig_data$display_name=='Hay fever, allergic rhinitis, eczema','Pos'] <- n_i - 41
-fig_data[fig_data$display_name=='Tx: albuterol','Pos'] <- n_i - 52
-fig_data[fig_data$display_name=='Wheezing','Pos'] <- fig_data[fig_data$display_name=='Wheezing','Pos'] + 1
-
-# Plot!
-group_cols <- c('Neurologic & Behavioral'='goldenrod', 'Ocular'='cornflowerblue',
-                'Asthma & Allergic Disease'='indianred', 'Pulmonary'='darkseagreen',
-                'Cardiovascular'='palevioletred', 'Hematologic &\nBlood Chemistry'='cadetblue',
-                'Gastrointenstinal'='orange', 'Renal & Urologic'='seagreen',
-                'Reproductive,\nEndocrine & Metabolic'='royalblue', 'Anthropometric'='coral',
-                'Musculoskeletal & Skin'='plum4', 'Neoplasms'='orchid4',
-                'Other'='gold')
-
-y_labels <- sub('\n','<br>',
-                str_c("<br>**",y_axis$category,"**<br><span style='font-size:9.5pt;color:dimgray'>",
-                      paste0("^((n=",totals$n,")^)</span>")))
-
-
-cairo_pdf(filename=paste0(output_dir, '/Fig_3x.pdf'), width=11, height=7.5)  # requires xquartz/encodings
-ggplot(fig_data, aes(x=-log10(p),y=Pos)) + 
-  
-  # add non-significant traits
-  geom_point(data=subset(fig_data, p>0.05/n_bonf), color="grey60", size=3.1,pch=19) +
-  geom_point(data=subset(fig_data, p>0.05/n_bonf), aes(bg=as.factor(category)), alpha=.3,size=3.1,pch=21) +
-  scale_fill_manual(values=group_cols) +
-  
-  # custom axes:
-  scale_y_continuous(label=y_labels, breaks= y_axis$center) +
-  scale_x_continuous(expand = c(0, 0), limits=c(-1,150)) + # remove space between plot area and x axis
-  geom_vline(xintercept=-log10(0.05/n_bonf),linetype='dashed',color='grey30',size=0.7) +
-  coord_cartesian(ylim=c(18,n_i-18), clip="off") +
-  # Add label using ggrepel to avoid overlapping
-  geom_text_repel(data=subset(fig_data, label==T), aes(label=display_name), size=2.6,
-                  max.overlaps=6, point.padding=unit(0.4,'lines'),nudge_x=4,
-                  box.padding=unit(0.35,'lines'),segment.color='grey',min.segment.length=0.2) +
-  
-  # Add highlighted points
-  geom_point(data=subset(fig_data, p<0.05/n_bonf & beta>0), aes(bg=as.factor(category)), alpha=0.85, size=2.8,pch=24) +
-  geom_point(data=subset(fig_data, p<0.05/n_bonf & beta<0), aes(bg=as.factor(category)), alpha=0.85, size=2.8,pch=25) +
-  
-  # Add super-significant labels
-  geom_text(data=subset(fig_data,p<1e-150), family = 'Arial Unicode MS', hjust=1,
-            aes(label=paste0(display_name,', ',low_pvals,"\u2192")), x = 150, size=2.6) +
-
-  # add color blocks
-  annotate("rect", xmin=-1,xmax=-log10(0.05/n_bonf), ymin=min(rects[,'mincat'][[1]])-7,
-           ymax=max(rects$maxcat)+10,
-           fill='grey15', alpha=0.2) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Renal & Urologic','mincat'][[1]],
-           ymax=rects[rects$category=='Renal & Urologic','maxcat'][[1]],
-           fill=group_cols[['Renal & Urologic']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Neurologic & Behavioral','mincat'][[1]]-7,
-           ymax=rects[rects$category=='Neurologic & Behavioral','maxcat'][[1]],
-           fill=group_cols[['Neurologic & Behavioral']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Neoplasms','mincat'][[1]],
-           ymax=rects[rects$category=='Neoplasms','maxcat'][[1]],
-           fill=group_cols[['Neoplasms']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Ocular','mincat'][[1]],
-           ymax=rects[rects$category=='Ocular','maxcat'][[1]],
-           fill=group_cols[['Ocular']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Cardiovascular','mincat'][[1]],
-           ymax=rects[rects$category=='Cardiovascular','maxcat'][[1]],
-           fill=group_cols[['Cardiovascular']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Musculoskeletal & Skin','mincat'][[1]],
-           ymax=rects[rects$category=='Musculoskeletal & Skin','maxcat'][[1]],
-           fill=group_cols[['Musculoskeletal & Skin']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Other','mincat'][[1]],
-           ymax=rects[rects$category=='Other','maxcat'][[1]],
-           fill=group_cols[['Other']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Anthropometric','mincat'][[1]],
-           ymax=rects[rects$category=='Anthropometric','maxcat'][[1]],
-           fill=group_cols[['Anthropometric']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Reproductive,\nEndocrine & Metabolic','mincat'][[1]],
-           ymax=rects[rects$category=='Reproductive,\nEndocrine & Metabolic','maxcat'][[1]],
-           fill=group_cols[['Reproductive,\nEndocrine & Metabolic']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Gastrointenstinal','mincat'][[1]],
-           ymax=rects[rects$category=='Gastrointenstinal','maxcat'][[1]],
-           fill=group_cols[['Gastrointenstinal']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Pulmonary','mincat'][[1]]-3,
-           ymax=rects[rects$category=='Pulmonary','maxcat'][[1]],
-           fill=group_cols[['Pulmonary']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Hematologic &\nBlood Chemistry','mincat'][[1]],
-           ymax=rects[rects$category=='Hematologic &\nBlood Chemistry','maxcat'][[1]]+1,
-           fill=group_cols[['Hematologic &\nBlood Chemistry']], alpha=0.15) +
-  annotate("rect", xmin=-1,xmax=150, ymin=rects[rects$category=='Asthma & Allergic Disease','mincat'][[1]]-2,
-           ymax=max(rects$maxcat)+10,
-           fill=group_cols[['Asthma & Allergic Disease']], alpha=0.15) +
-  
-  # Customize the theme:
-  theme_bw() +
-  theme( 
-    text=element_text(family="Helvetica"),
-    legend.position="none",
-    panel.border = element_blank(),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor.y = element_blank(),
-    axis.text.y = element_markdown(hjust=1,lineheight=1.25),
-    axis.title.y = element_blank(),
-    axis.title.x = element_text(vjust=-2),
-    axis.line.y = element_line(),
-    axis.line.x = element_line(size=0.1),
-    plot.margin=unit(c(0.5,1,1,0.2),"cm")
-  )
-dev.off()
+# table_s6 <- pwas_results[pwas_results$ancestry==afr,
+#                         c('display_name',ukb_var,'ukb_data_field','category','beta','se','p','n')]
+write.table(pwas_results[pwas_results$ancestry==afr,], paste0(output_dir, '/phewas_results_afr.txt'), 
+            quote=F, row.names=F,col.names=T, sep="\t")
+# write.table(table_s6, paste0(output_dir, '/table_s6.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
 
 
 ###############################################################################################
-### 4.  Analysis of non-asthmatics                                                          ###
+### 4.  Comparison of PRS model PheWAS results                                              ###
+###############################################################################################
+# 
+# Compare PheWAS results between GBMI and TAGC models
+#
+
+# pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.pwas.data.csv'), header=T)
+# pwas_results <- read.delim(paste0(output_dir, '/phewas_results.txt'))
+
+
+### Run PheWAS for TAGC PRS
+tagc_score <- read.table(paste0(score_dir, '/PRScs.UKB_LD.TAGC_ME.UKB_scores.txt'), header=T)
+prs_tagc <- 'zscore_tagc'
+tagc_score[,prs_tagc] <- ztransform(tagc_score$SCORE_SUM)
+
+###  PheWASs in BW for TAGC ###
+
+pwas_dat_tagc <- merge(pwas_dat, tagc_score[,c('IID', prs_tagc)], by.x='eid',by.y='IID')
+
+pwas_results_tagc <- data.frame(matrix(ncol=13, nrow=0))
+colnames(pwas_results_tagc) <- c(names(pwas_metadata),'ancestry','sex','beta','se','p','n','df')
+i <- 1 
+
+for (trait in c(bin_traits, quant_traits)) {
+    print(c(i, trait))
+    sex_check <- colSums(table(pwas_dat_tagc[,c(trait,'sex')])>0)>=2  # checks case/control counts for each sex
+    sexes <- names(sex_check[sex_check>0])
+    test_dat <- pwas_dat_tagc[(pwas_dat_tagc$sex %in% sexes) & (pwas_dat_tagc$ancestry==bw),
+                         c(trait,prs_tagc,strsplit(covars,'+',fixed=T)[[1]][-1])]
+    if (length(sexes)<2) {
+      model_covars <- substr(covars, 5, nchar(covars))
+    } else {
+      model_covars <- covars
+    }
+    pwas_results_tagc[i,] <- tryCatch(
+      {
+        if (trait %in% bin_traits) {
+          model <- glm(paste0(trait,'~',prs_tagc,model_covars), data=test_dat, family=binomial)
+        } else {
+          model <- lm(paste0(trait,'~',prs_tagc,model_covars), data=test_dat)
+        }
+        s <- summary(model)
+        c(pwas_metadata[pwas_metadata$ukb_variable==trait,], bw, paste(sexes,collapse=' & '),
+          model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals), df.residual(model))
+      },
+      error=function(e){
+        return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], anc, rep(NA,5)))
+      }
+    )
+    i <- i+1
+}
+
+write.table(pwas_results_tagc, paste0(output_dir, '/phewas_results_tagc.txt'), 
+            quote=F, row.names=F,col.names=T, sep="\t")
+
+
+scatter_dat <- merge(pwas_results_tagc[,c(ukb_var,'display_name','category','invert','beta','se','p','df')],
+                     pwas_results[pwas_results$ancestry==bw,c(ukb_var,'beta','se','p')], by=ukb_var)
+
+scatter_dat$beta.x <- ifelse(scatter_dat$invert==1, scatter_dat$beta.x*-1, scatter_dat$beta.x)
+scatter_dat$beta.y <- ifelse(scatter_dat$invert==1, scatter_dat$beta.y*-1, scatter_dat$beta.y)
+
+cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits), c('beta.x','beta.y')]) # 0.87
+
+scatter_dat$beta_diff <- ifelse(scatter_dat$p.x>(0.05/371) | scatter_dat$p.y>(0.05/371), NA,
+                                ifelse(scatter_dat$beta.x*scatter_dat$beta.y>0,
+                                       abs(scatter_dat$beta.y)-abs(scatter_dat$beta.x),
+                                       abs(scatter_dat$beta.y)+abs(scatter_dat$beta.x)))
+
+scatter_dat$p_diff <- ifelse(scatter_dat$ukb_variable %in% bin_traits,
+                             pchisq(((scatter_dat$beta.y-scatter_dat$beta.x)/
+                                       sqrt(scatter_dat$se.y^2 + scatter_dat$se.x^2))^2, df=1, lower.tail=F),
+                             2*pt(abs((scatter_dat$beta.y-scatter_dat$beta.x)/
+                                        sqrt(scatter_dat$se.y^2 + scatter_dat$se.x^2)), df=scatter_dat$df, lower.tail=F))
+
+scatter_dat$sig <- ifelse(scatter_dat$p_diff<(0.05/371),1,0)
+
+length(scatter_dat[(scatter_dat$p.y<(0.05/371)) & (scatter_dat$p.x<(0.05/371)), 'category'])
+sum(scatter_dat$sig)
+
+
+# Test for categorical biases
+for (i in 1:length(group_cols)) {
+  b<-0; q<-0; p_bin <- 'NA'; p_auant <- 'NA'; p <- 'NA'
+  cat=sub('\n',' ',names(group_cols)[i])
+  #print(cat)
+  temp_bin <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% bin_traits,]
+  temp_quant <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% quant_traits,]
+  n_bin <- nrow(temp_bin)
+  n_quant <- nrow(temp_quant)
+  if (n_bin > 2) {
+    b <- 1
+    model <- summary(lm(I(exp(beta.y))~0+exp(beta.x), data=temp_bin))
+    p_bin <- min(pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_bin)-2), 1)
+    #print(p_bin)
+  }
+  if (n_quant > 2) {
+    q <- 1
+    model <- summary(lm(I(beta.y)~0+beta.x, data=temp_quant))
+    p_quant <- min(pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_quant)-2), 1)
+    #print(p_quant)
+  }
+  if (b+q==2) {
+    z_b <- qnorm(1-p_bin)
+    z_q <- qnorm(1-p_quant)
+    z <- (n_bin*z_b + n_quant*z_q)/sqrt(n_bin^2 + n_quant^2)
+    p <- 1-pnorm(z)
+  } else if (b==1) {
+    p <- p_bin
+  } else if (q==1) {
+    p <- p_quant
+  }
+  if (p<(0.05/13)) {print(c(cat,p))}
+}
+
+max_gbmi_bin <- scatter_dat[!is.na(scatter_dat$beta_diff) & 
+                              (scatter_dat$beta_diff==max(scatter_dat[scatter_dat$ukb_variable %in% bin_traits,
+                                                                      'beta_diff'], na.rm=T)),'ukb_variable']
+max_gbmi_quant <- scatter_dat[!is.na(scatter_dat$beta_diff) & 
+                                (scatter_dat$beta_diff==max(scatter_dat[scatter_dat$ukb_variable %in% quant_traits,
+                                                                        'beta_diff'], na.rm=T)),'ukb_variable']
+max_tagc_bin <- scatter_dat[!is.na(scatter_dat$beta_diff) & 
+                              (scatter_dat$beta_diff==min(scatter_dat[scatter_dat$ukb_variable %in% bin_traits,
+                                                                      'beta_diff'], na.rm=T)),'ukb_variable']
+max_tagc_quant <- scatter_dat[!is.na(scatter_dat$beta_diff) & 
+                                (scatter_dat$beta_diff==min(scatter_dat[scatter_dat$ukb_variable %in% quant_traits,
+                                                                        'beta_diff'], na.rm=T)),'ukb_variable']
+save(scatter_dat, max_gbmi_bin, max_gbmi_quant, max_tagc_bin, max_tagc_quant, 
+     file=paste0(output_dir,'phewas_comp.Rdata'))
+
+###############################################################################################
+### 5.  Analysis of non-asthmatics                                                          ###
 ###############################################################################################
 # 
 # Perform PheWAS in non-asthmatics and evaluate differences
@@ -692,7 +628,11 @@ dev.off()
 
 # pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.pwas.data.csv'), header=T)
 
-pwas_dat_na <- pwas_dat[pwas_dat$ancestry==bw,]
+env_dat <- read.csv(paste0(pheno_dir, '/PRS-additional.pack-years.csv'), header=T)
+
+pwas_dat <- merge(pwas_dat, env_dat[,c('eid','townsend_dprvtn_idx','pack_years_CALC')],
+                  by='eid', all.x=T)
+
 # determine controls (make list of asthmatics and then subtract from total)
 asthmatics <- unique(c(subset(pwas_dat_na, asthma_all==1)$eid,
                        subset(pwas_dat_na, asthma_children==1)$eid,
@@ -702,288 +642,87 @@ asthmatics <- unique(c(subset(pwas_dat_na, asthma_all==1)$eid,
                        subset(pwas_dat_na, blood_clot_asthma==1)$eid,
                        subset(pwas_dat_na, asthma_icd10==1)$eid))
 
+pwas_dat$asthma_allPhenos <- pwas_dat$asthma_all
+pwas_dat$asthma_allPhenos[pwas_dat$eid %in% asthmatics] <- 1
+
+# Derive probability weights for IPW
+model_covars <- paste(covars, 
+                      c('bmi_body_size0+townsend_dprvtn_idx+pack_years_CALC+attendance_none'),sep='+')
+prop_model <- glm(paste0('asthma_allPhenos ~',prs,model_covars), data=pwas_dat, family=binomial)
+prop_score <- predict(prop_model, type='response')
+weights <- ifelse(pwas_dat[,asthma]==1, 1/prop_score, 1/(1-prop_score))
+pwas_dat$weights <- weights
+
+pwas_dat_na <- pwas_dat[pwas_dat$ancestry==bw,]
 pwas_dat_na <- pwas_dat_na[!(pwas_dat_na$eid %in% asthmatics),]
 
 pwas_metadata <- read.table(paste0(pheno_dir,'/pwas_metadata.tsv'), header=T, sep='\t', quote="")
-quant_traits <- pwas_metadata[pwas_metadata$bin==0,'ukb_variable']
-bin_traits <- pwas_metadata[pwas_metadata$bin==1,'ukb_variable']
+quant_traits <- pwas_metadata[pwas_metadata$bin==0,ukb_var]
+bin_traits <- pwas_metadata[pwas_metadata$bin==1,ukb_var]
 
 # Run PheWAS 
-pwas_na_results <- data.frame(matrix(ncol=11, nrow=0))
-colnames(pwas_na_results) <- c(names(pwas_metadata),'sex','beta','se','p','n')
+pwas_na_results <- data.frame(matrix(ncol=12, nrow=0))
+colnames(pwas_na_results) <- c(names(pwas_metadata),'sex','beta','se','p','n', 'df')
 i <- 1 
 for (trait in c(bin_traits, quant_traits)) {
   print(c(i, trait))
   sex_check <- colSums(table(pwas_dat_na[,c(trait,'sex')])>0)>=2  # checks case/control counts for each sex
   sexes <- names(sex_check[sex_check>0])
-  test_dat <- pwas_dat_na[(pwas_dat_na$sex %in% sexes),
-                          c(trait,prs,strsplit(covars,'+',fixed=T)[[1]][-1])]
   if (length(sexes)<2) {
     model_covars <- substr(covars, 5, nchar(covars))
   } else {
     model_covars <- covars
   }
+  test_dat <- pwas_dat_na[(pwas_dat_na$sex %in% sexes),
+                          c('eid',trait,prs,'weights',strsplit(model_covars,'+',fixed=T)[[1]][-1])]
   pwas_na_results[i,] <- tryCatch(
     {
       if (trait %in% bin_traits) {
-        model <- glm(paste0(trait,'~',prs,model_covars), data=test_dat, family=binomial)
+        test_dat_na <- test_dat[!(test_dat$eid %in% asthmatics),]
+        model <- glm(paste0(trait,'~',prs,model_covars), data=test_dat_na, family=binomial, weights=weights)
       } else {
         test_dat[!is.na(test_dat[,trait]),trait] <- ztransform(test_dat[,trait])  # standardize quant traits
-        model <- lm(paste0(trait,'~',prs,model_covars), data=test_dat)
+        test_dat_na <- test_dat[!(test_dat$eid %in% asthmatics),]
+        model <- lm(paste0(trait,'~',prs,model_covars), data=test_dat_na, weights=weights)
       }
       s <- summary(model)
       c(pwas_metadata[pwas_metadata$ukb_variable==trait,], paste(sexes,collapse=' & '),
-        model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals))
+        model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals), df.residual(model))
     },
     error=function(e){
-      return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], rep(NA,5)))
+      return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], rep(NA,6)))
     }
-    )
+  )
   i <- i+1
 }
 
 pwas_na_results <- merge(pwas_na_results, pwas_results[pwas_results$ancestry==bw,
-                                                       c('ukb_variable','beta','se','p')], by='ukb_variable')
+                                                       c(ukb_var,'beta','se','p','df')], by=ukb_var)
 
 names(pwas_na_results) <- gsub(x = names(pwas_na_results), pattern = "\\.x", replacement = "\\.na")  
 names(pwas_na_results) <- gsub(x = names(pwas_na_results), pattern = "\\.y", replacement = "\\.a")  
 
 pwas_na_results$delta_beta <- (pwas_na_results$beta.na/pwas_na_results$beta.a)-1
 
-#table_s3 <- pwas_na_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.x',
-#                                'se.x','p.x','n','delta_beta')]
 
-#write.table(table_s3, paste0(output_dir, '/table_s3.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
-# write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
+pwas_na_results$p_diff <- ifelse(pwas_na_results$ukb_variable %in% bin_traits,
+                             pchisq(((pwas_na_results$beta.a-pwas_na_results$beta.na)/
+                                       sqrt(pwas_na_results$se.a^2 + pwas_na_results$se.na^2))^2, df=1, lower.tail=F),
+                             2*pt(abs((pwas_na_results$beta.a-pwas_na_results$beta.na)/
+                                        sqrt(pwas_na_results$se.a^2 + pwas_na_results$se.na^2)), 
+                                  df=pmin(pwas_na_results$df.a, pwas_na_results$df.na), lower.tail=F))
+
+pwas_na_results$sig <- ifelse(pwas_na_results$p_diff<(0.05/371),1,0)
+
+
+#table_s4 <- pwas_na_results[,c('display_name',ukb_var,'ukb_data_field','category','beta.na',
+#                                'se.na','p.na','n','delta_beta','p_diff')]
+
+#write.table(table_s4, paste0(output_dir, '/table_s4.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
+#write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
 #             quote=F, row.names=F,col.names=T, sep="\t")
 
 # write.table(pwas_dat, paste0(pheno_dir, '/ukb.pwas.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
-
-
-#####  FIGURE 4 (PheWAS associations in non-asthmatics, binary traits) #####
-#
-# NOTE: category colors and text emphasis were manually added
-#
-
-# library(forestplot)
-
-## BW PheWAS Results
-fig_data <- pwas_na_results[!is.na(pwas_na_results$p.na),]
-
-fig_data[fig_data$invert==1,'beta.a'] <- fig_data[fig_data$invert==1,'beta.a']*-1
-fig_data[fig_data$bin==1,'CI_L.a'] <- exp(fig_data[fig_data$bin==1,'beta.a'] - 1.96*fig_data[fig_data$bin==1,'se.a'])
-fig_data[fig_data$bin==1,'CI_U.a'] <- exp(fig_data[fig_data$bin==1,'beta.a'] + 1.96*fig_data[fig_data$bin==1,'se.a'])
-fig_data[fig_data$bin==1,'beta.a'] <- exp(fig_data[fig_data$bin==1,'beta.a'])
-fig_data[fig_data$bin==0,'CI_L.a'] <- fig_data[fig_data$bin==0,'beta.a'] - 1.96*fig_data[fig_data$bin==0,'se.a']
-fig_data[fig_data$bin==0,'CI_U.a'] <- fig_data[fig_data$bin==0,'beta.a'] + 1.96*fig_data[fig_data$bin==0,'se.a']
-
-# Only plot most significant association for redundant traits (e.g. icd10 vs self-report)
-fig_data <- data.frame(tibble(fig_data) %>% group_by(display_name) %>% filter(p.a==min(p.a)))
-fig_data <- fig_data[!duplicated(fig_data$display_name),]
-
-fig_data[fig_data$ukb_variable=='blood_clot_hayfever','p.a'] <- 5e-324
-fig_data[fig_data$ukb_variable=='blood_clot_none','p.a'] <- 5e-324
-fig_data[fig_data$ukb_variable=='eosinophill_count0','p.a'] <- 5e-324
-
-## BW PheWAS non-Asthmatics - Results
-fig_data[fig_data$invert==1,'beta.na'] <- fig_data[fig_data$invert==1,'beta.na']*-1
-fig_data[fig_data$bin==1,'CI_L.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'] - 1.96*fig_data[fig_data$bin==1,'se.na'])
-fig_data[fig_data$bin==1,'CI_U.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'] + 1.96*fig_data[fig_data$bin==1,'se.na'])
-fig_data[fig_data$bin==1,'beta.na'] <- exp(fig_data[fig_data$bin==1,'beta.na'])
-fig_data[fig_data$bin==0,'CI_L.na'] <- fig_data[fig_data$bin==0,'beta.na'] - 1.96*fig_data[fig_data$bin==0,'se.na']
-fig_data[fig_data$bin==0,'CI_U.na'] <- fig_data[fig_data$bin==0,'beta.na'] + 1.96*fig_data[fig_data$bin==0,'se.na']
-
-# Filter data for only significant findings
-fig_data <- fig_data[fig_data$p.a<(0.05/n_bonf),]
-
-# Put data in order of beta difference, filter to top results
-fig_data <- merge(fig_data,min_group_p[,c('category','order')], by='category')
-fig_data <- fig_data[order(fig_data$order,fig_data$p.a),]
-
-fig_data_quant <- fig_data[fig_data$bin==0,]
-fig_data_bin <- fig_data[fig_data$bin==1,]
-
-# Text on plot
-traits <- fig_data_bin$display_name
-p.a <- formatC(fig_data_bin$p.a, format = "e", digits = 0)
-p.na <- formatC(fig_data_bin$p.na, format = "e", digits = 0)
-
-tabletext <- list(
-  c("Trait\n",traits),
-  c("P-value\n(All)    \n", p.a),
-  c("P-value\n(Non-asthma)\n", p.na)
-)
-
-rows <- as.character(1:37)
-line_list <- list("1"=gpar(col=rgb(1,1,1,0),lty='dotted'), "2"=gpar(col='gray20'))
-for (i in c(3:length(rows))) {
-  line_list[[rows[i]]] <- gpar(col='gray25',lty=3)
-}
-
-# Plot
-cairo_pdf(filename=paste0(output_dir, '/Fig_4.pdf'), width=10, height=9)  # requires xquartz/encodings
-forestplot(tabletext, 
-           mean = cbind(c(NA,fig_data_bin$beta.na), c(NA,fig_data_bin$beta.a)),
-           lower = cbind(c(NA,fig_data_bin$CI_L.na), c(NA,fig_data_bin$CI_L.a)), 
-           upper = cbind(c(NA,fig_data_bin$CI_U.na), c(NA,fig_data_bin$CI_U.a)),
-           new_page = TRUE,
-           clip = c(0.8,1.8), 
-           hrzl_lines=line_list,
-           zero=1,
-           xlog = F, xlab = "OR", 
-           col = fpColors(box = c("steelblue3", "firebrick4"),
-                          lines = c("steelblue", "firebrick3")),
-           fn.ci_norm = c(fpDrawDiamondCI, fpDrawDiamondCI),
-           is.summary = c(TRUE,rep(FALSE,nrow(fig_data))), 
-           graph.pos = 2,
-           graphwidth=unit(120,'mm'),
-           boxsize = 0.35, 
-           line.margin = .51,
-           lineheight = unit(6,"mm"),
-           lwd.zero=1.75,
-           txt_gp= fpTxtGp(label=gpar(cex=0.8), title=gpar(cex=0.8), legend=gpar(cex=0.8), 
-                           xlab=gpar(cex=0.8), ticks=gpar(cex=0.8),summary=gpar(cex=0.75)),
-           legend = c("WB Non-asthmatics", "WB"), 
-           ci.vertices = TRUE)
-dev.off()
-
-
-#####  FIGURE 5 (PheWAS associations in non-asthmatics, quantitative traits) #####
-#
-# NOTE: category colors and text bolding were manually added
-#
-
-# Text on plot
-traits <- fig_data_quant$display_name
-p.a <- formatC(fig_data_quant$p.a, format = "e", digits = 0)
-p.na <- formatC(fig_data_quant$p.na, format = "e", digits = 0)
-
-p.a[p.a=="0e+00"] <- "<5e-324"
-
-tabletext <- list(
-  c("Trait\n",traits),
-  c("P-value\n(All)\n", p.a),
-  c("P-value\n(Non-asthma)\n", p.na)
-)
-
-rows <- as.character(1:42)
-line_list <- list("1"=gpar(col=rgb(1,1,1,0),lty='dotted'), "2"=gpar(col='gray20'))
-for (i in c(3:length(rows))) {
-  line_list[[rows[i]]] <- gpar(col='gray25',lty=3)
-}
-
-# Plot
-cairo_pdf(filename=paste0(output_dir, '/Fig_5.pdf'), width=11, height=10)  # requires xquartz/encodings
-forestplot(tabletext, 
-           mean = cbind(c(NA,fig_data_quant$beta.na), c(NA,fig_data_quant$beta.a)),
-           lower = cbind (c(NA,fig_data_quant$CI_L.na), c(NA,fig_data_quant$CI_L.a)), 
-           upper = cbind(c(NA,fig_data_quant$CI_U.na), c(NA,fig_data_quant$CI_U.a)),
-           new_page = TRUE,
-           clip = c(-0.2,.2), 
-           hrzl_lines=line_list,
-           xlog = F, xlab = "Beta", 
-           col = fpColors(box = c("steelblue3", "firebrick4"),
-                          lines = c("steelblue", "firebrick3")),
-           fn.ci_norm = c(fpDrawDiamondCI, fpDrawDiamondCI),
-           is.summary = c(TRUE,rep(FALSE,nrow(fig_data))), 
-           graph.pos = 2,
-           graphwidth=unit(120,'mm'),
-           boxsize = 0.35, 
-           line.margin = .51,
-           lineheight = unit(6,"mm"),
-           lwd.zero=1.75,
-           txt_gp= fpTxtGp(label=gpar(cex=0.8), title=gpar(cex=0.8), legend=gpar(cex=0.8), 
-                           xlab=gpar(cex=0.8), ticks=gpar(cex=0.8),summary=gpar(cex=0.75)),
-           legend = c("WB Non-asthmatics", "WB All"), 
-           ci.vertices = TRUE)
-dev.off()
-
-
-#####  FIGURE 6 (Eosinophil effects by population) #####
-
-trait <- 'eosinophill_percentage0'
-
-fig_data <- c(beta.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'beta'],
-              se.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'se'],
-              beta.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.na'],
-              se.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'se.na'],
-              beta.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'beta'],
-              se.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'se'],
-              beta.afr=pwas_results[pwas_results$ancestry==afr & pwas_results$ukb_variable==trait,'beta'],
-              se.afr=pwas_results[pwas_results$ancestry==afr & pwas_results$ukb_variable==trait,'se'])
-
-fig_data <- c(fig_data,
-              CI_L.bw=fig_data[['beta.bw']]-(1.96*fig_data[['se.bw']]), 
-              CI_U.bw=fig_data[['beta.bw']]+(1.96*fig_data[['se.bw']]),
-              CI_L.na=fig_data[['beta.na']]-(1.96*fig_data[['se.na']]),
-              CI_U.na=fig_data[['beta.na']]+(1.96*fig_data[['se.na']]),
-              CI_L.nbw=fig_data[['beta.nbw']]-(1.96*fig_data[['se.nbw']]),
-              CI_U.nbw=fig_data[['beta.nbw']]+(1.96*fig_data[['se.nbw']]),
-              CI_L.afr=fig_data[['beta.afr']]-(1.96*fig_data[['se.afr']]),
-              CI_U.afr=fig_data[['beta.afr']]+(1.96*fig_data[['se.afr']]))
-
-fig_data <- round(fig_data, 3)
-
-fig_p <- c(p.bw=pwas_results[pwas_results$ancestry==bw & pwas_results$ukb_variable==trait,'p'],
-           p.na=pwas_na_results[pwas_na_results$ukb_variable==trait,'beta.na'],
-           p.nbw=pwas_results[pwas_results$ancestry==nbw & pwas_results$ukb_variable==trait,'p'],
-           p.afr=pwas_results[pwas_results$ancestry==afr & pwas_results$ukb_variable==trait,'p'])
-
-## Text on plot
-pops <- c('White British','White British\nnon-asthmatics','White non-British ', 'African ancestries')
-betas <- c(paste0(fig_data['beta.bw'], '  [', fig_data['CI_L.bw'], '-', fig_data['CI_U.bw'],']'),
-           paste0(fig_data['beta.na'], '  [', fig_data['CI_L.na'], '-', fig_data['CI_U.na'],']'),
-           paste0(fig_data['beta.nbw'], '  [', fig_data['CI_L.nbw'], '-', fig_data['CI_U.nbw'],']'),
-           paste0(fig_data['beta.afr'], '  [', fig_data['CI_L.afr'], '0-', fig_data['CI_U.afr'],']'))
-
-fig_p <- formatC(fig_p, format='e', digits=2)
-
-fig_p[fig_p=='0.00e+00'] <- '<4.94e-324'
-
-tabletext <- list(
-  c("Population",pops),
-  c("\U03B2  [95% CI]", betas),
-  c("P", fig_p)
-)
-
-for(i in 2:length(tabletext)) {
-  # All elements should have the same length
-  if (5 != length(tabletext[[i]]))
-    print(tabletext[[i]])
-}
-
-
-rows <- as.character(1:5)
-line_list <- list("1"=gpar(col=rgb(1,1,1,0),lty='dotted'), "2"=gpar(col='gray20'))
-for (i in c(3:length(rows))) {
-  line_list[[rows[i]]] <- gpar(col='gray25',lty=3)
-}
-
-
-# Plot
-cairo_pdf(filename=paste0(output_dir, '/Fig_6.pdf'), width=7, height=4)  # requires xquartz/encodings
-forestplot(tabletext, 
-           mean = c(NA, fig_data['beta.bw'], fig_data['beta.na'], fig_data['beta.nbw'], fig_data['beta.afr']),
-           lower = c(NA, fig_data['CI_L.bw'], fig_data['CI_L.na'], fig_data['CI_L.nbw'], fig_data['CI_L.afr']), 
-           upper = c(NA, fig_data['CI_U.bw'], fig_data['CI_U.na'], fig_data['CI_U.nbw'], fig_data['CI_U.afr']),
-           new_page = TRUE,
-           clip = c(-0.2,.2), 
-           hrzl_lines=line_list,
-           xlog = F, xlab=expression(beta["z"]), 
-           col = fpColors(box="black", lines="slategray4"),
-           fn.ci_norm = fpDrawDiamondCI,
-           is.summary = c(TRUE,rep(FALSE,4)), 
-           graph.pos = 2,
-           graphwidth=unit(60,'mm'),
-           boxsize = 0.2, 
-           line.margin = .71,
-           lineheight = unit(20,"mm"),
-           lwd.zero=1.75,
-           lwd.ci=1.25,
-           txt_gp= fpTxtGp(label=gpar(cex=0.75), title=gpar(cex=0.85), legend=gpar(cex=0.85), 
-                           xlab=gpar(cex=0.95), ticks=gpar(cex=0.7), summary=gpar(cex=0.85)),
-           ci.vertices = TRUE)
-dev.off()
 
 
 ###############################################################################################
@@ -992,12 +731,11 @@ dev.off()
 # 
 # This analysis evaluates the PRS prediction and trait associations using a score generated
 #   without HLA region alleles
-#   NOTE: Figure 7 was generated externally/manually using the results generated herein
 #
 
 # Add HLA-excluded scores
-scores_noHLA <- read.table(paste0(score_dir,"/PRScs.UKB_LD.TAGC_ME.UKB_scores.no_HLA.txt"),header=T)
-names(scores_noHLA) <- c('eid','PRS_noHLA')
+scores_noHLA <- read.table(paste0(score_dir,"/PRScs.1KG_LD.GBMI.UKB_scores.no_HLA.txt"),header=T)
+names(scores_noHLA) <- c('eid','ALLELE_CT','DOSAGE_SUM','PRS_noHLA')
 pwas_dat <- merge(pwas_dat, scores_noHLA, by='eid')
 pwas_dat$PRS_noHLA <- ztransform(pwas_dat$PRS_noHLA)
 
@@ -1005,47 +743,49 @@ pwas_dat$PRS_noHLA <- ztransform(pwas_dat$PRS_noHLA)
 cor(pwas_dat[,c(prs,'PRS_noHLA')])
 
 # Compare asthma prediction between scores
-for (phenotype in c(coa, aoa, asthma)){
+for (phenotype in c(asthma, coa, aoa)){
   model <- glm(paste0(phenotype,'~PRS_noHLA',covars), data = pwas_dat[pwas_dat$ancestry==bw,], family = 'binomial')
-  roc_auc <- roc(pwas_dat[pwas_dat$ancestry==bw,phenotype],pwas_dat[pwas_dat$ancestry==bw,'PRS_noHLA'], plot=F, quiet=T)$auc[1]
+  roc_auc_noHLA <- roc(pwas_dat[pwas_dat$ancestry==bw,phenotype],pwas_dat[pwas_dat$ancestry==bw,'PRS_noHLA'], plot=F, quiet=T)$auc[1]
+  roc_auc_all <- roc(pwas_dat[pwas_dat$ancestry==bw,phenotype],pwas_dat[pwas_dat$ancestry==bw,prs], plot=F, quiet=T)$auc[1]
+  roc_diff <- roc_auc_all-roc_auc_noHLA
   print(paste(phenotype,':    ', round(exp(summary(model)$coefficients[2,1]),4),
               round(exp(summary(model)$coefficients[2,1]-(1.96*summary(model)$coefficients[2,2])),4),
               round(exp(summary(model)$coefficients[2,1]+(1.96*summary(model)$coefficients[2,2])),4),
               coef(summary(model))[2,4],
               round((summary(model)$coefficients[2,1]/
                  pwas_results[(pwas_results$ancestry==bw) & 
-                                (pwas_results$ukb_variable==phenotype),'beta'])-1,4), roc_auc))
+                                (pwas_results$ukb_variable==phenotype),'beta'])-1,4), roc_auc, roc_diff))
+}
+
+# generate boostrap permutations
+auc_diff <- data.frame(matrix(ncol=3, nrow=n_replicates))
+colnames(auc_diff) <- c(coa, aoa, asthma)
+model_dat <- pwas_dat[pwas_dat$ancestry==bw,]
+for (i in 1:n_replicates) {
+  print(i)
+  sample_dat <- model_dat[sample(nrow(model_dat), replace=TRUE),]
+  for (phenotype in c(coa, aoa, asthma)){
+    model <- glm(paste0(phenotype,'~PRS_noHLA',covars), data = sample_dat, family = 'binomial')
+    roc_auc_noHLA <- roc(sample_dat[,phenotype],sample_dat[,'PRS_noHLA'], plot=F, quiet=T)$auc[1]
+    roc_auc_all <- roc(sample_dat[,phenotype],sample_dat[,prs], plot=F, quiet=T)$auc[1]
+    roc_diff <- roc_auc_all-roc_auc_noHLA
+    auc_diff[i,phenotype] <- roc_diff
+  }
 }
 
 # for asthma_all
 prs_all_asthma <- glm(paste0(phenotype,'~',prs,covars), data = pwas_dat[pwas_dat$ancestry==bw,], family = 'binomial')  
 round((summary(model)$coefficients[2,1]/summary(prs_all_asthma)$coefficients[2,1])-1,4)
 
-### AUC PLOT
-plot_dat <- pwas_dat[pwas_dat$ancestry==bw,]
-par(mar = c(4, 4, 4, 4)+.1)
-roc_auc <- roc(plot_dat[,case],scores[scores$ancestry==anc,prs], plot=F, quiet=T)$auc[1]
-
-plot.roc(plot_dat$asthma_all, plot_dat$PRS_noHLA, main="", xlim=c(0.963,0.037), ylim=c(0.037,0.963),
-         col='purple2', asp=F, xaxt='n', yaxt='n', print.auc=T)
-plot.roc(plot_dat$asthma_children, plot_dat$PRS_noHLA,col='seagreen3', add=TRUE, print.auc=T)
-plot.roc(plot_dat$asthma_adults, plot_dat$PRS_noHLA ,col='orange2', add=TRUE, print.auc=T)
-legend("bottomright", title="AUC", inset=0.02, legend=c("COA: 0.647", "AOA: 0.556", "All:    0.587"), 
-       col=c('seagreen3','orange2','purple2'),
-       pch=c(15,15,15), bty='n', cex=0.85, pt.cex = 1.15)
-axis(2, seq(0,1,.2), labels = c('0.0','0.2','0.4','0.6','0.8','1.0'), xpd = TRUE, cex.axis=0.85, las=2)
-axis(1, seq(1,0,-.2), labels = NA)
-text(seq(1,0,-.2), par("usr")[3] - 0.03, labels = c('1.0','0.8','0.6','0.4','0.2','0.0'), pos = 1, xpd = TRUE, cex=0.85)
-
 # Perform PheWAS using HLA-removed score 
 pwas_dat_hla <- pwas_dat[pwas_dat$ancestry==bw,]
 
-pwas_metadata <- read.table(paste0(pheno_dir,'/pwas_metadata.tsv'), header=T, sep='\t', quote="")
-quant_traits <- pwas_metadata[pwas_metadata$bin==0,'ukb_variable']
-bin_traits <- pwas_metadata[pwas_metadata$bin==1,'ukb_variable']
+#pwas_metadata <- read.table(paste0(pheno_dir,'/pwas_metadata.tsv'), header=T, sep='\t', quote="")
+#quant_traits <- pwas_metadata[pwas_metadata$bin==0,ukb_var]
+#bin_traits <- pwas_metadata[pwas_metadata$bin==1,ukb_var]
 
-pwas_hla_results <- data.frame(matrix(ncol=11, nrow=0))
-colnames(pwas_hla_results) <- c(names(pwas_metadata),'sex','beta','se','p','n')
+pwas_hla_results <- data.frame(matrix(ncol=12, nrow=0))
+colnames(pwas_hla_results) <- c(names(pwas_metadata),'sex','beta','se','p','n','df')
 i <- 1 
 for (trait in c(bin_traits, quant_traits)) {
   print(c(i, trait))
@@ -1068,29 +808,36 @@ for (trait in c(bin_traits, quant_traits)) {
       }
       s <- summary(model)
       c(pwas_metadata[pwas_metadata$ukb_variable==trait,], paste(sexes,collapse=' & '),
-        model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals))
+        model$coefficients[2][[1]], coef(s)[2,2], coef(s)[2,4], length(model$residuals), df.residual(model))
     },
     error=function(e){
-      return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], rep(NA,5)))
+      return(c(pwas_metadata[pwas_metadata$ukb_variable==trait,], rep(NA,6)))
     }
   )
   i <- i+1
 }
 
 pwas_hla_results <- merge(pwas_hla_results, pwas_results[pwas_results$ancestry==bw,
-                                                       c('ukb_variable','beta','se','p')], by='ukb_variable')
+                                                       c(ukb_var,'beta','se','p','df')], by=ukb_var)
 
 names(pwas_hla_results) <- gsub(x = names(pwas_hla_results), pattern = "\\.x", replacement = "\\.hla")  
 names(pwas_hla_results) <- gsub(x = names(pwas_hla_results), pattern = "\\.y", replacement = "\\.a")  
 
 pwas_hla_results$delta_beta <- (pwas_hla_results$beta.hla/pwas_hla_results$beta.a)-1
 
+pwas_hla_results$p_diff2 <- ifelse(pwas_hla_results$ukb_variable %in% bin_traits,
+                          pchisq(((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
+                                    sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2))^2, df=1, lower.tail=F),
+                          pchisq(((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
+                                    sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2))^2, df=1, lower.tail=F))
+pwas_hla_results$p_diff_diff <- pwas_hla_results$p_diff2-pwas_hla_results$p_diff
+pwas_hla_results$sig <- ifelse(pwas_hla_results$p_diff<.05/371,1,0)
+View(pwas_hla_results)
 
-#table_s6 <- pwas_hla_results[,c('display_name','ukb_variable','ukb_data_field','category','beta.hla',
-#                                'se.hla','p.hla','n','delta_beta')]
-
-#write.table(table_s6, paste0(output_dir, '/table_s6.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
-# write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
+#table_s7 <- pwas_hla_results[,c('display_name',ukb_var,'ukb_data_field','category','beta.hla',
+#                                'se.hla','p.hla','n','delta_beta', 'p_diff')]
+#write.table(table_s7, paste0(output_dir, '/table_s7.tsv'), quote=F, row.names=F,col.names=T, sep="\t")
+#write.table(pwas_hla_results, paste0(output_dir, '/pwas_noHLA_results.tsv'), 
 #             quote=F, row.names=F,col.names=T, sep="\t")
 
 
@@ -1118,11 +865,20 @@ traits <- c('eosinophill_count0','fev1_fvc_ratio','age_hay_fever_diagnosed')
 phenos <- c('asthma_children','asthma_adults','asthma_all')
 
 med_df <- setNames(data.frame(matrix(ncol = 3, nrow = 3)), phenos)
+med_95L_df <- setNames(data.frame(matrix(ncol = 3, nrow = 3)), phenos)
+med_95H_df <- setNames(data.frame(matrix(ncol = 3, nrow = 3)), phenos)
 rownames(med_df) <- traits
+rownames(med_95L_df) <- traits
+rownames(med_95L_df) <- traits
+
+n_replicates <- 1000
 
 for (pheno in phenos){
   for (trait in traits){
     model_dat <- pwas_dat[pwas_dat$ancestry==bw,]
+    model_covars <- paste(covars, 
+                          c('bmi_body_size0+townsend_dprvtn_idx+pack_years_CALC+attendance_none'),sep='+')
+    model_covars <- covars
     if (pheno=='asthma_children') {
       test_dat <- model_dat[!(is.na(model_dat$asthma_children) & model_dat$asthma_all==1),]
       test_dat <- test_dat[!is.na(model_dat$asthma_adults) & model_dat$asthma_adults!=1,]
@@ -1132,9 +888,10 @@ for (pheno in phenos){
     } else {
       test_dat <- model_dat
     }
-    model.y <- glm(paste0(pheno, '~', prs, covars), data=test_dat, family='binomial')
-    model.m <- lm(paste0(trait,'~', prs , covars), data=test_dat)
-    model.total <- glm(paste0(pheno,'~', trait, '+', prs, covars), data=test_dat, family='binomial')
+    
+    model.y <- glm(paste0(pheno, '~', prs, model_covars), data=test_dat, family='binomial')
+    model.m <- lm(paste0(trait,'~', prs , model_covars), data=test_dat)
+    model.total <- glm(paste0(pheno,'~', trait, '+', prs, model_covars), data=test_dat, family='binomial')
     
     c <- coefficients(model.y)[[prs]]
     c_prime <- coefficients(model.total)[[prs]]
@@ -1145,64 +902,36 @@ for (pheno in phenos){
     
     a <- coefficients(model.m)[[prs]]
     b <- coefficients(model.total)[[trait]]
-    print(c(pheno, trait, round(a,6), round(c_std,6), round(a*b/((a*b)+c_prime),6), round(a*b/(c_std),6)))
+    
+    
+    # calculate 95% CI for r2
+    prop_values <- rep(NA, n_replicates)
+    for (r in 1:n_replicates) {
+      print(r)
+      sample_dat <- test_dat[sample(nrow(test_dat), replace=TRUE),]
+      model.y <- glm(paste0(pheno, '~', prs, model_covars), data=sample_dat, family='binomial')
+      model.m <- lm(paste0(trait,'~', prs , model_covars), data=sample_dat)
+      model.total <- glm(paste0(pheno,'~', trait, '+', prs, model_covars), data=sample_dat, family='binomial')
+      
+      c <- coefficients(model.y)[[prs]]
+      c_prime <- coefficients(model.total)[[prs]]
+      b2 <- (coefficients(model.total)[[trait]])^2
+      sigma2_mx <- var(model.m$residuals)
+      norm_factor <- sqrt(1+((b2*sigma2_mx)/((pi^2)/3)))
+      c_std <- c*norm_factor
+      a <- coefficients(model.m)[[prs]]
+      b <- coefficients(model.total)[[trait]]
+      prop_values[r] <- round(a*b/(c_std),6)
+    }
+    
+    lower_ci_r2 <- quantile(as.numeric(prop_values), 0.025)
+    upper_ci_r2 <- quantile(as.numeric(prop_values), 0.975)
+    
+    #print(c(pheno, trait, round(a,6), round(c_std,6), round(a*b/((a*b)+c_prime),6), round(a*b/(c_std),6)))
     med_df[trait, pheno] <- round(a*b/(c_std),6)
+    med_95L_df[trait, pheno] <- lower_ci_r2
+    med_95H_df[trait, pheno] <- upper_ci_r2
   }
 }
 
-
-#####  FIGURE 8 (Mediation Bar Plot) #####
-names(med_df) <- c("Childhood-onset\nasthma","Adult-onset\nasthma","All\nasthma")
-cols <- c('cadetblue3','darkseagreen3','coral1')
-
-pdf(file=paste0(output_dir, '/Fig_8.pdf'), width=6, height=5)
-par(xpd=F, mar=c(3,4.5,2,2))
-b <- barplot(height=as.matrix(med_df), ylab="Proportion mediated", beside=TRUE, ylim=c(-0.05,0.2), col=cols,
-             cex.lab=0.8, cex.names=0.8, font=2, yaxt='n')
-axis(2, cex.axis=0.8)                
-grid(nx = NA, ny = NULL, lty = 2, col = "gray", lwd = 1)
-abline(h=0,col='black')
-barplot(height=as.matrix(med_df), beside=TRUE, ylim=c(-0.05,0.2), col=cols, add=T, xaxt='n',yaxt='n', ylab='')
-text(x=b, y=c(med_df[,1], med_df[,2], med_df[,3]), pos=c(1,1,1,1,1,3,1,1,1), 
-     label=round(c(med_df[,1], med_df[,2], med_df[,3]),2), cex=0.6, col='black')
-legend('topright', legend=c('Eosinophil count', expression('FEV'[1]*'/FVC'), 'Age hay fever diagnosed'), cex=0.7,
-       fill=cols, box.col='gray75', bty=1, inset=c(0.02,0.01), x.intersp=0.75, y.intersp=0.9, text.width=3.5)
-dev.off()
-
-# Estimate asthma mediation of BMI association, proportion mediated from Li 2007
-bmi_med_df <- setNames(data.frame(matrix(ncol = 2, nrow = 3)), c('Proportion','P-value'))
-rownames(bmi_med_df) <- phenos
-
-for (pheno in phenos){
-  model_dat <- pwas_dat[pwas_dat$ancestry==bw,]
-  if (pheno=='asthma_children') {
-    test_dat <- model_dat[!(is.na(model_dat$asthma_children) & model_dat$asthma_all==1),]
-    test_dat <- test_dat[!is.na(model_dat$asthma_adults) & model_dat$asthma_adults!=1,]
-  } else if (pheno=='asthma_adults') {
-    test_dat <- model_dat[!(is.na(model_dat$asthma_adults) & model_dat$asthma_all==1),]
-    test_dat <- test_dat[!is.na(model_dat$asthma_children) & model_dat$asthma_children!=1,]
-  } else {
-    test_dat <- model_dat
-  }
-  tm_sobel <- test_mediation(test_dat, prs, 'bmi_body_size0',pheno, 
-                             test='sobel', covariates=strsplit(covars,'\\+')[[1]][-1], robust=F)
-  
-  model.y <- lm(paste0('bmi_body_size0 ~', prs, covars), data=test_dat)
-  model.m <- glm(paste0(pheno, '~', prs, covars), data=test_dat, family='binomial')
-  model.total <- lm(paste0('bmi_body_size0 ~', pheno, '+', prs, covars), data=test_dat)
-  
-  a_hat <- coefficients(model.m)[[prs]]
-  b_hat <- coefficients(model.total)[[pheno]]
-  b1 <- coefficients(model.y)[[prs]]
-  delt_AL <- a_hat*b_hat*(exp(sum(coefficients(model.m)))/((1 + exp(sum(coefficients(model.m))))^2))
-  
-  a <- coefficients(model.m)[[prs]]
-  b <- coefficients(model.total)[[pheno]]
-  c_prime <- coefficients(model.total)[[prs]]
-  c <- coefficients(model.y)[[prs]]
-  
-  prop_AL <- delt_AL/(delt_AL + c_prime)
-  
-  print(c(pheno, prop_AL, tm_sobel$p_value))
-  bmi_med_df[pheno, ] <- c(prop_AL, tm_sobel$p_value)
-}
+save(med_df, med_95L_df, med_95H_df, file=paste0(output_dir, 'mediation_results.RData'))
