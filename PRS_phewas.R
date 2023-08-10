@@ -86,7 +86,7 @@ library(pROC)
 ## trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.data.csv'), header=T)
 
 # Read PRS scores, compute asthma prediction
-n_replicates <- 2
+n_replicates <- 1000
 predict_df <- data.frame(matrix(ncol=14, nrow=0))
 colnames(predict_df) <- c('Study','LD', 'UKB_ancestry','Asthma_pheno','AUC','AUC_95CI_L','AUC_95CI_U',
                           'r2','r2_2.5','r2_97.5','OR','OR_95CI_L','OR_95CI_U','P')
@@ -152,11 +152,11 @@ for (study in c('TAGC', 'GBMI')) {
 scores <- read.table(paste0(score_dir, '/PRScs.1KG_LD.GBMI.UKB_scores.txt'), header=T)
 scores[,prs] <- ztransform(scores$SCORE_SUM)
 
-scores <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID")
+trait_dat <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID")
 for (anc in c(bw, nbw, afr)) {
   print(paste0('  ',anc))
   cvs <- ifelse(anc==afr, afr_covars, covars)
-  model_dat <- scores[scores$ancestry==anc,]
+  model_dat <- trait_dat[trait_dat$ancestry==anc,]
   for (case in c(asthma, coa, aoa)) {
     print(paste0('    ',case))
     case_cntl <- table(model_dat[,case])
@@ -207,18 +207,13 @@ write.table(predict_df, paste0(output_dir, '/asthma_prs_prediction_r2liability.t
 #   the plots for Figures 1 & 2
 #
 
-#library(sjmisc)
-#library(plotrix)
-#library(scales)
-#library(emmeans)
-#library(ggplot2)
-#library(ggnewscale)
+library(sjmisc)
 
 # trait_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.data.csv'), header=T)
 
-score <- read.table(paste0(score_dir, '/PRScs.1KG_LD.GBMI.UKB_scores.txt'), header=T)
-score[,prs] <- ztransform(score$SCORE_SUM)
-trait_dat <- merge(trait_dat, score[,c("IID", prs)], by.x="eid", by.y="IID")
+#scores <- read.table(paste0(score_dir, '/PRScs.1KG_LD.GBMI.UKB_scores.txt'), header=T)
+#scores[,prs] <- ztransform(scores$SCORE_SUM)
+#trait_dat <- merge(trait_dat, scores[,c("IID", prs)], by.x="eid", by.y="IID")
 
 trait_dat <- trait_dat[!is.na(trait_dat[,prs]),]
 trait_dat <- trait_dat[!is.na(trait_dat$ancestry),]
@@ -466,7 +461,7 @@ for (trait in rep_traits_afr[rep_traits_afr %in% rep_traits_nbw]){
 
 
 # Write PheWAS output tables
-# write.table(pwas_dat, paste0(pheno_dir, '/ukb.pwas.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
+# write.table(pwas_dat, paste0(pheno_dir, '/ukb.trait.prs.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
 write.table(pwas_results, paste0(output_dir, '/phewas_results.txt'), quote=F, row.names=F,col.names=T, sep="\t")
 
 # table_s2 <- pwas_results[pwas_results$ancestry==bw,
@@ -495,7 +490,7 @@ write.table(pwas_results[pwas_results$ancestry==afr,], paste0(output_dir, '/phew
 # Compare PheWAS results between GBMI and TAGC models
 #
 
-# pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.pwas.data.csv'), header=T)
+# pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.prs.data.csv'), header=T)
 # pwas_results <- read.delim(paste0(output_dir, '/phewas_results.txt'))
 
 
@@ -571,25 +566,25 @@ sum(scatter_dat$sig)
 
 
 # Test for categorical biases
-for (i in 1:length(group_cols)) {
-  b<-0; q<-0; p_bin <- 'NA'; p_auant <- 'NA'; p <- 'NA'
-  cat=sub('\n',' ',names(group_cols)[i])
+for (i in 1:length(unique(scatter_dat$category))) {
+  b<-0; q<-0; p_bin <- 'NA'; p_quant <- 'NA'; p <- 'NA'
+  cat=sub('\n',' ',unique(scatter_dat$category)[i])
   #print(cat)
-  temp_bin <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% bin_traits,]
-  temp_quant <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% quant_traits,]
+  temp_bin <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% bin_traits &
+                          scatter_dat$p.x < 0.05 & scatter_dat$p.y < 0.05,]
+  temp_quant <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% quant_traits &
+                            scatter_dat$p.x < 0.05 & scatter_dat$p.y < 0.05,]
   n_bin <- nrow(temp_bin)
   n_quant <- nrow(temp_quant)
   if (n_bin > 2) {
     b <- 1
     model <- summary(lm(I(exp(beta.y))~0+exp(beta.x), data=temp_bin))
-    p_bin <- min(pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_bin)-2), 1)
-    #print(p_bin)
+    p_bin <- min(2*pt(-abs((coef(model)[1]-1)/coef(model)[2]), df=nrow(temp_bin)-2), 1)
   }
   if (n_quant > 2) {
     q <- 1
     model <- summary(lm(I(beta.y)~0+beta.x, data=temp_quant))
-    p_quant <- min(pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_quant)-2), 1)
-    #print(p_quant)
+    p_quant <- min(2*pt(-abs((coef(model)[1]-1)/coef(model)[2]), df=nrow(temp_quant)-2), 1)
   }
   if (b+q==2) {
     z_b <- qnorm(1-p_bin)
@@ -626,7 +621,7 @@ save(scatter_dat, max_gbmi_bin, max_gbmi_quant, max_tagc_bin, max_tagc_quant,
 # Perform PheWAS in non-asthmatics and evaluate differences
 #
 
-# pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.pwas.data.csv'), header=T)
+# pwas_dat <- read.csv(paste0(pheno_dir, '/ukb.trait.prs.data.csv'), header=T)
 
 env_dat <- read.csv(paste0(pheno_dir, '/PRS-additional.pack-years.csv'), header=T)
 
@@ -634,13 +629,13 @@ pwas_dat <- merge(pwas_dat, env_dat[,c('eid','townsend_dprvtn_idx','pack_years_C
                   by='eid', all.x=T)
 
 # determine controls (make list of asthmatics and then subtract from total)
-asthmatics <- unique(c(subset(pwas_dat_na, asthma_all==1)$eid,
-                       subset(pwas_dat_na, asthma_children==1)$eid,
-                       subset(pwas_dat_na, asthma_adults==1)$eid,
-                       subset(pwas_dat_na, asthma_self_reported==1)$eid,
-                       subset(pwas_dat_na, asthma_doctor_diagnosed0==1)$eid,
-                       subset(pwas_dat_na, blood_clot_asthma==1)$eid,
-                       subset(pwas_dat_na, asthma_icd10==1)$eid))
+asthmatics <- unique(c(subset(pwas_dat, asthma_all==1)$eid,
+                       subset(pwas_dat, asthma_children==1)$eid,
+                       subset(pwas_dat, asthma_adults==1)$eid,
+                       subset(pwas_dat, asthma_self_reported==1)$eid,
+                       subset(pwas_dat, asthma_doctor_diagnosed0==1)$eid,
+                       subset(pwas_dat, blood_clot_asthma==1)$eid,
+                       subset(pwas_dat, asthma_icd10==1)$eid))
 
 pwas_dat$asthma_allPhenos <- pwas_dat$asthma_all
 pwas_dat$asthma_allPhenos[pwas_dat$eid %in% asthmatics] <- 1
@@ -722,7 +717,7 @@ pwas_na_results$sig <- ifelse(pwas_na_results$p_diff<(0.05/371),1,0)
 #write.table(pwas_na_results, paste0(output_dir, '/pwas_noAsthma_results.tsv'), 
 #             quote=F, row.names=F,col.names=T, sep="\t")
 
-# write.table(pwas_dat, paste0(pheno_dir, '/ukb.pwas.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
+# write.table(pwas_dat, paste0(pheno_dir, '/ukb.trait.prs.data.csv'), quote=F, row.names=F,col.names=T, sep=",")
 
 
 ###############################################################################################
@@ -754,7 +749,7 @@ for (phenotype in c(asthma, coa, aoa)){
               coef(summary(model))[2,4],
               round((summary(model)$coefficients[2,1]/
                  pwas_results[(pwas_results$ancestry==bw) & 
-                                (pwas_results$ukb_variable==phenotype),'beta'])-1,4), roc_auc, roc_diff))
+                                (pwas_results$ukb_variable==phenotype),'beta'])-1,4), roc_auc_noHLA, roc_diff))
 }
 
 # generate boostrap permutations
@@ -825,12 +820,13 @@ names(pwas_hla_results) <- gsub(x = names(pwas_hla_results), pattern = "\\.y", r
 
 pwas_hla_results$delta_beta <- (pwas_hla_results$beta.hla/pwas_hla_results$beta.a)-1
 
-pwas_hla_results$p_diff2 <- ifelse(pwas_hla_results$ukb_variable %in% bin_traits,
-                          pchisq(((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
-                                    sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2))^2, df=1, lower.tail=F),
-                          pchisq(((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
-                                    sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2))^2, df=1, lower.tail=F))
-pwas_hla_results$p_diff_diff <- pwas_hla_results$p_diff2-pwas_hla_results$p_diff
+pwas_hla_results$p_diff <- ifelse(pwas_hla_results$ukb_variable %in% bin_traits,
+                                 pchisq(((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
+                                           sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2))^2, df=1, lower.tail=F),
+                                 2*pt(abs((pwas_hla_results$beta.a-pwas_hla_results$beta.hla)/
+                                            sqrt(pwas_hla_results$se.a^2 + pwas_hla_results$se.hla^2)), 
+                                      df=pmin(pwas_hla_results$df.a, pwas_hla_results$df.hla), lower.tail=F))
+
 pwas_hla_results$sig <- ifelse(pwas_hla_results$p_diff<.05/371,1,0)
 View(pwas_hla_results)
 
@@ -855,7 +851,7 @@ View(pwas_hla_results)
 
 #library(robmed)
 
-seed <- 20220117
+set.seed(20220117)
 
 # pwas_dat <- read.csv(['path/to/ukb/data/pwas_data.csv'])
 

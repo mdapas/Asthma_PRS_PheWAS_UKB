@@ -12,9 +12,6 @@ coa <- 'asthma_children'; aoa <- 'asthma_adults'; asthma <- 'asthma_all'
 # pheno_dir <- [/path/to/directory/with/phenotype/data]
 # output_dir <- [/path/to/output/directory]
 
-pheno_dir <- '/Users/mdn578/Documents/Research/Ober/Asthma_PRS/Phenotypes/'
-output_dir <- '/Users/mdn578/Documents/Research/Ober/Asthma_PRS/GBMI_Results/'
-
 group_cols <- c('Neurologic & Behavioral'='royalblue', 'Ocular'='cornflowerblue',
                 'Asthma & Allergic Disease'='indianred', 'Pulmonary'='orange',
                 'Cardiovascular'='palevioletred', 'Hematologic &\nBlood Chemistry'='cadetblue',
@@ -438,11 +435,11 @@ pwas_metadata <- read.table(paste0(pheno_dir,'/pwas_metadata.tsv'), header=T, se
 quant_traits <- pwas_metadata[pwas_metadata$bin==0,ukb_var]
 bin_traits <- pwas_metadata[pwas_metadata$bin==1,ukb_var]
 
-load(paste0(output_dir,'phewas_comp.Rdata'))
+load(paste0(output_dir,'phewas_comp2.Rdata'))
 
 
 # BINARY TRAITS (5a)
-r2 <- round(cor(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits), c('beta.x','beta.y')]))[2]^2,2)
+r <- round(cor(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits), c('beta.x','beta.y')]))[2],2)
 sig_bin_traits <- scatter_dat[(scatter_dat$ukb_variable %in% bin_traits) & ((scatter_dat$p.x<(0.05/371))|(scatter_dat$p.y<(0.05/371))), ukb_var]
 
 range=c(-0.3, 1)
@@ -458,7 +455,7 @@ plot(log2(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits) &
                             (!scatter_dat$ukb_variable %in% sig_bin_traits), c('beta.x','beta.y')])), xaxt='n',yaxt='n', 
      xlim=range, ylim=range, xlab='', ylab='',pch=16, col='grey70', cex=0.8)
 #mtext('r=0.87',side=3,adj=0.05,padj=2)
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 # significant in both datasets
 #arrows(x, avg-sdev, x, avg+sdev, length=0.02, angle=90, code=3)
 arrows(log2(exp(scatter_dat[scatter_dat$ukb_variable %in% sig_bin_traits, 'beta.x'])),
@@ -514,10 +511,7 @@ dev.off()
 
 
 # QUANT TRAITS (5b)
-cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) & (scatter_dat$p.x<(0.05/371)) & 
-                  (scatter_dat$p.y<(0.05/371)), c('beta.x','beta.y')]) # 0.92
-
-r2 <- round(cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits), c('beta.x','beta.y')])[2]^2,2)
+r <- round(cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits), c('beta.x','beta.y')])[2],2)
 sig_quant_traits <- scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) & ((scatter_dat$p.x<(0.05/371))|(scatter_dat$p.y<(0.05/371))), ukb_var]
 
 range=c(-0.14,0.14)
@@ -531,7 +525,7 @@ plot(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) &
                    (!scatter_dat$ukb_variable %in% sig_quant_traits), c('beta.x','beta.y')], xaxt='n',yaxt='n', 
      xlim=range, ylim=range, xlab='', ylab='',pch=16, col='grey70', cex=0.8)
 #mtext('r=0.87',side=3,adj=0.05,padj=2)
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 # significant in both datasets
 #arrows(x, avg-sdev, x, avg+sdev, length=0.02, angle=90, code=3)
 arrows(scatter_dat[scatter_dat$ukb_variable %in% sig_quant_traits, 'beta.x'],
@@ -577,7 +571,7 @@ dev.off()
 
 
 # BINARY TRAITS, with categorical differences (5c)
-r2 <- round(cor(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits), c('beta.x','beta.y')]))[2]^2,2)
+r <- round(cor(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits), c('beta.x','beta.y')]))[2],2)
 sig_bin_traits <- scatter_dat[(scatter_dat$ukb_variable %in% bin_traits) & ((scatter_dat$p.x<(0.05/371))|(scatter_dat$p.y<(0.05/371))), ukb_var]
 
 range=c(-0.3, 1)
@@ -593,7 +587,7 @@ plot(log2(exp(scatter_dat[(scatter_dat$ukb_variable %in% bin_traits) &
                             (!scatter_dat$ukb_variable %in% sig_bin_traits), c('beta.x','beta.y')])), xaxt='n',yaxt='n', 
      xlim=range, ylim=range, xlab='', ylab='',pch=16, col='grey70', cex=0.8)
 #mtext('r=0.87',side=3,adj=0.05,padj=2)
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 # significant in both datasets
 #arrows(x, avg-sdev, x, avg+sdev, length=0.02, angle=90, code=3)
 arrows(log2(exp(scatter_dat[scatter_dat$ukb_variable %in% sig_bin_traits, 'beta.x'])),
@@ -614,10 +608,11 @@ for (i in 1:length(group_cols)) {
   par(new=T)
   cat=sub('\n',' ',names(group_cols)[i])
   print(cat)
-  temp_dat <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% bin_traits,]
+  temp_dat <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% bin_traits &
+                            scatter_dat$p.x < 0.05 & scatter_dat$p.y < 0.05,]
   if (nrow(temp_dat) > 2) {
     model <- summary(lm(I(exp(beta.y))~0+exp(beta.x), data=temp_dat))
-    p <- 2*pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_dat)-2)
+    p <- 2*pt(-abs((coef(model)[1]-1)/coef(model)[2]), df=nrow(temp_quant)-2)
   } else {
     p <- 1
   }
@@ -648,10 +643,7 @@ dev.off()
 
 
 # QUANT TRAITS, color by category (5d)
-cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) & (scatter_dat$p.x<(0.05/371)) & 
-                  (scatter_dat$p.y<(0.05/371)), c('beta.x','beta.y')]) # 0.92
-
-r2 <- round(cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits), c('beta.x','beta.y')])[2]^2,2)
+r <- round(cor(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits), c('beta.x','beta.y')])[2],2)
 sig_quant_traits <- scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) & ((scatter_dat$p.x<(0.05/371))|(scatter_dat$p.y<(0.05/371))), ukb_var]
 
 range=c(-0.14,0.14)
@@ -665,7 +657,7 @@ plot(scatter_dat[(scatter_dat$ukb_variable %in% quant_traits) &
                    (!scatter_dat$ukb_variable %in% sig_quant_traits), c('beta.x','beta.y')], xaxt='n',yaxt='n', 
      xlim=range, ylim=range, xlab='', ylab='',pch=16, col='grey70', cex=0.8)
 #mtext('r=0.87',side=3,adj=0.05,padj=2)
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 # significant in both datasets
 #arrows(x, avg-sdev, x, avg+sdev, length=0.02, angle=90, code=3)
 arrows(scatter_dat[scatter_dat$ukb_variable %in% sig_quant_traits, 'beta.x'],
@@ -685,10 +677,11 @@ for (i in 1:length(group_cols)) {
   par(new=T)
   cat=sub('\n',' ',names(group_cols)[i])
   print(cat)
-  temp_dat <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% quant_traits,]
+  temp_dat <- scatter_dat[scatter_dat$category==cat & scatter_dat$ukb_variable %in% quant_traits &
+                            scatter_dat$p.x < 0.05 & scatter_dat$p.y < 0.05,]
   if (nrow(temp_dat) > 2) {
     model <- summary(lm(I(beta.y)~0+beta.x, data=temp_dat))
-    p <- 2*pt((1-coef(model)[1])/coef(model)[2], df=nrow(temp_dat)-2)
+    p <- 2*pt(-abs((coef(model)[1]-1)/coef(model)[2]), df=nrow(temp_quant)-2)
   } else {
     p <- 1
   }
@@ -738,8 +731,8 @@ scatter_bin <- scatter_dat[scatter_dat$ukb_variable %in% bin_traits,]
 
 
 # BINARY TRAITS, with categorical differences (6a)
-scatter_bin <- scatter_bin[scatter_bin$se.na <1, ]  # removing traits with exceptionally wide CIs
-r2 <- round(cor(exp(scatter_bin[,c('beta.a','beta.na')]))[2]^2,2)
+r <- round(cor(exp(scatter_bin[,c('beta.a','beta.na')]))[2],2)
+scatter_bin <- scatter_bin[scatter_bin$se.na <1, ]  # removing trait with exceptionally wide CI for plotting
 sig_bin_traits <- scatter_bin[scatter_bin$sig==1, ukb_var]
 
 xrange <- c(-0.26,1)
@@ -751,7 +744,7 @@ plot(1, type='n', xlim=xrange, ylim=yrange, xlab='All (OR)',
 axis(1, c(0,log2(1.5),log2(2)), labels = c('1.0','1.5','2'), xpd = TRUE, cex.axis=0.85)
 axis(2, c(0,log2(1.5),log2(2), log2(2.5)), labels = c('1.0','1.5','2','2.5'), xpd = TRUE, cex.axis=0.85, las=2)
 abline(0,1, col='pink', lty=2); abline(h=0, lty=3); abline(v=0, lty=3); 
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 # significant in both datasets
 arrows(log2(exp(scatter_bin[, 'beta.a'])), log2(exp(scatter_bin[,'beta.na']-1.96*scatter_bin[,'se.na'])),
        log2(exp(scatter_bin[,'beta.a'])), log2(exp(scatter_bin[,'beta.na']+1.96*scatter_bin[,'se.na'])),
@@ -796,9 +789,7 @@ dev.off()
 
 
 # QUANT TRAITS, color by category (6b)
-cor(scatter_quant[,  c('beta.a','beta.na')]) # 0.92
-
-r2 <- round(cor(scatter_quant[, c('beta.a','beta.na')])[2]^2,2)
+r <- round(cor(scatter_quant[, c('beta.a','beta.na')])[2],2)
 sig_quant_traits <- scatter_quant[(scatter_quant$sig==1), ukb_var]
 
 range=c(-0.14,0.14)
@@ -807,7 +798,7 @@ par(xpd=F, mgp=c(2.5,0.75,0), mar=c(4.1,4.5,2,2), lheight = .3)
 plot(1,type='n',xlim=range, ylim=range, xlab=expression(paste('All (',beta,')')), 
      ylab=expression(paste('No asthma (',beta,')')), cex.axis=0.7, cex.lab=0.8)
 abline(0,1, col='pink', lty=2); abline(h=0, lty=3); abline(v=0, lty=3)
-mtext(parse(text=paste("r^2==",r2)), side=3, adj=0.05, padj=2, cex=0.8)
+mtext(paste("r =",r), side=3, adj=0.05, padj=2, cex=0.8)
 
 arrows(scatter_quant$beta.a, scatter_quant$beta.na - 1.96*scatter_quant$se.na,
        scatter_quant$beta.a, scatter_quant$beta.na + 1.96*scatter_quant$se.na, 
